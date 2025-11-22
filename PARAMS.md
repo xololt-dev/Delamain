@@ -1,0 +1,66 @@
+# Parameters file
+Parameters file used for setting up the eval / training enviroment is written in yaml format.
+
+## Expected structure
+
+- model:
+  - class_name
+    - string
+  - file_name
+    - string
+    - model file name placed inside /training/saved_models
+- env:
+  - random_colors
+    - boolean
+  - skip_frames
+    - int
+  - mode
+    - string
+    - options: 'train', 'eval', None
+    - default: 'train'
+- train:
+  - batch_n
+    - int
+  - play_n_episodes
+    - int
+  - gamma
+    - float
+  - epsilon
+    - float
+  - epsilon_end
+    - float
+  - epsilon_decay
+    - float
+  - lr
+    - float
+  - buffer_size
+    - int
+- eval:
+  - tracks
+    - int | list[int]
+    - n random tracks or list of track seeds
+  - video
+    - boolean
+- reporting:
+  - when2learn
+    - int
+    - in timesteps
+  - when2sync
+    - int
+    - in timesteps
+  - when2save
+    - int
+    - in timesteps
+  - when2report
+    - int
+    - in timesteps
+  - when2eval
+    - int
+    - in timesteps
+  - when2log
+    - int
+    - in episodes
+  - report_type
+    - string
+    - options: 'text', 'plot', None
+    - default: 'text'

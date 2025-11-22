@@ -1,0 +1,27 @@
+model:
+  class_name:
+  file_name: 'Delamain_21_11.pt'
+env:
+  random_colors: False
+  skip_frames: 4
+  mode: 'eval'
+train:
+  batch_n: 32
+  play_n_episodes: 3000
+  gamma: 0.95
+  epsilon: 1.0
+  epsilon_end: 0.05
+  epsilon_decay: 0.9999925
+  lr: 0.0002
+  buffer_size: 300000
+eval:
+  tracks: [1, 1, 1, 1, 6, 6, 6, 6]
+  video: True
+reporting:
+  when2learn: 4 # in timesteps
+  when2sync: 5000 # in timesteps
+  when2save: 50000 # in timesteps
+  when2report: 5000 # in timesteps
+  when2eval: 50000 # in timesteps
+  when2log: 10 # in episodes
+  report_type: 'text' # 'text', 'plot', None
