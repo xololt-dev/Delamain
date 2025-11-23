@@ -79,10 +79,10 @@ class Agent():
       self.buffer.add(
           TensorDict(
               {
-                  "state": torch.tensor(state),
+                  "state": state.detach().clone() if isinstance(state, torch.Tensor) else torch.tensor(state),
                   "action": torch.tensor(action),
                   "reward": torch.tensor(reward),
-                  "new_state": torch.tensor(new_state),
+                  "new_state": new_state.detach().clone() if isinstance(new_state, torch.Tensor) else torch.tensor(state),
                   "terminated": torch.tensor(terminated)
               },
               batch_size=[]
@@ -109,8 +109,8 @@ class Agent():
             terminateds (torch.Tensor) : A batch of sampled termination flags.
         """
         batch = self.buffer.sample(batch_size)
-        states = batch.get('state').type(torch.float).to(self.device)
-        new_states = batch.get('new_state').type(torch.float).to(self.device)
+        states = batch.get('state').type(torch.Tensor).to(self.device)
+        new_states = batch.get('new_state').type(torch.Tensor).to(self.device)
         actions = batch.get('action').squeeze().to(self.device)
         rewards = batch.get('reward').squeeze().to(self.device)
         terminateds = batch.get('terminated').squeeze().to(self.device)
@@ -130,11 +130,13 @@ class Agent():
         if np.random.rand() < self.epsilon:
             action_idx = np.random.randint(self.action_n)
         else:
-            state = torch.tensor(
-                state,
-                dtype=torch.float,
-                device=self.device
-                ).unsqueeze(0)
+            state = (state.detach().clone().to(torch.float).to(self.device) 
+                if isinstance(state, torch.Tensor) else 
+                    torch.tensor(
+                    state,
+                    dtype=torch.float,
+                    device=self.device
+                )).unsqueeze(0)
             action_values = self.target_net(state)
             action_idx = torch.argmax(action_values, axis=1).item()
         if self.epsilon > self.epsilon_end:
@@ -237,14 +239,24 @@ class Agent():
             self.policy_net.eval()
             self.epsilon_min = 0
             self.epsilon = 0
+        elif self.load_state == 'kernel_vis':
+            self.target_net.eval()
+            self.policy_net.eval()
+            self.epsilon_min = 0
+            self.epsilon = 0
         elif self.load_state == 'train':
             self.target_net.train()
             self.policy_net.train()
             self.act_taken = loaded_model['action_number']
             self.epsilon = loaded_model['epsilon']
             # self.buffer.loads(buffer_save_path)
+        elif self.load_state == 'fine_tune':
+            self.target_net.train()
+            self.policy_net.train()
+            self.act_taken = loaded_model['action_number']
+            self.epsilon = loaded_model['epsilon']
         else:
-            raise ValueError(f"Unknown load state. Should be either 'eval' or 'train'.")
+            raise ValueError(f"Unknown load state. Should be either 'eval', 'kernel_vis', 'train' or 'fine_tune'.")
         
         print(f"Model {model_name} from {load_dir} loaded")
 

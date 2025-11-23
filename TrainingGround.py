@@ -2,12 +2,21 @@ import gymnasium as gym
 import yaml
 import numpy as np
 import torch
+import torchvision
 import datetime
 import torch.nn as nn
+import matplotlib
+import matplotlib.pyplot as plt
 
 from enviroment.Agent import Agent
 from enviroment.SkipFrame import SkipFrame
 from alternative_models.Delamain import Delamain
+from alternative_models.Delamain_2 import Delamain_2
+
+# set up matplotlib
+is_ipython = 'inline' in matplotlib.get_backend()
+if is_ipython:
+    from IPython import display
 
 class TrainingGround():
     def __init__(self):
@@ -45,13 +54,14 @@ class TrainingGround():
                 self.env,
                 video_folder="training/video",    # Folder to save videos
                 name_prefix="eval",               # Prefix for video filenames
-                episode_trigger=lambda x: x % self.when2eval == 0   # Record every episode
+                episode_trigger=lambda x: True if yamlValues['env']['mode'] == 'eval' else lambda x: x % self.when2eval == 0   # Record every episode
             )
 
         self.state, info = self.env.reset()
+        self.previous_state = self.state
         action_n = self.env.action_space.n
         if yamlValues['env']['mode'] == 'eval':
-            self.driver = Agent(self.state.shape, action_n, Delamain, buffer_size=0)
+            self.driver = Agent(self.state.shape, action_n, self.parse_class_name(yamlValues['model']['class_name']), buffer_size=0)
             if not yamlValues['model']['file_name']:
                 raise Exception("No model file name passed in training params")
 
@@ -68,20 +78,34 @@ class TrainingGround():
                 self.parse_class_name(yamlValues['model']['class_name']),
                 **{k: v for k, v in agent_args.items() if v is not None}
             )
+            if yamlValues['env']['mode']:
+                self.driver.load_state = yamlValues['env']['mode']
         if yamlValues['model']['file_name']:
-            self.driver.load('../training/saved_models', yamlValues['model']['file_name'])
+            self.driver.load('./training/saved_models', yamlValues['model']['file_name'])
 
     def parse_class_name(self, class_name: str | None) -> nn.Module:
         match class_name:
             case 'Delamain':
                 return Delamain
+            case 'Delamain_2':
+                return Delamain_2
             case _:
                 return Delamain
-    
-    def start(self):
-        if self.driver.load_state == 'eval':
-            return self.eval()
 
+    def start(self):
+        match self.driver.load_state:
+            case 'eval':
+                return self.eval()
+            case 'train':
+                return self.train()
+            case 'fine_tune':
+                raise Exception("Currently fine_tune not supported")
+            case 'kernel_vis':
+                return self.kernels()
+            case _:
+                return self.train()
+
+    def train(self):
         while self.episode <= self.play_n_episodes:
             self.episode += 1
             episode_reward = 0
@@ -94,11 +118,20 @@ class TrainingGround():
                 self.timestep_n += 1
                 episode_length += 1
 
-                action = self.driver.take_action(self.state)
+                if self.driver.target_net.is_prev_frame_needed():
+                    action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                else:
+                    action = self.driver.take_action(self.state)
+
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 episode_reward += reward
-                self.driver.store(self.state, action, reward, new_state, terminated)
+                if self.driver.target_net.is_prev_frame_needed():
+                    self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
+                else:
+                    self.driver.store(self.state, action, reward, new_state, terminated)
+                
                 # Move to the next state
+                self.previous_state = self.state
                 self.state = new_state
                 updating = not (terminated or truncated)
 
@@ -163,6 +196,9 @@ class TrainingGround():
                     self.episode_epsilon_list,
                     log_filename='Delamain_log_test.csv'
                     )
+    
+    def fine_tune(self):
+        pass
 
     def eval(self):
         if not self.eval_tracks:
@@ -174,22 +210,48 @@ class TrainingGround():
             tracks_iterable = range(0, self.eval_tracks)
 
         for track in tracks_iterable:
-            self.state, info = self.env.reset(seed=track if isinstance(self.eval_tracks, list) else None)
+            seed = track if isinstance(self.eval_tracks, list) else self.env.np_random.integers(0, 9223372036854775807, dtype=int)
+            self.state, info = self.env.reset(seed=seed)
 
             episode_reward = 0
             episode_length = 0
             updating = True
+            action = None
 
             while updating:
                 episode_length += 1
                 
-                action = self.driver.take_action(self.state)
+                if self.driver.target_net.is_prev_frame_needed():
+                    action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                else:
+                    action = self.driver.take_action(self.state)
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 episode_reward += reward
 
+                self.previous_state = self.state
                 self.state = new_state
                 updating = not (terminated or truncated)
             
-            print(f'Track seed: {track}')
+            print(f'Track seed: {seed}')
             print(f'    reward {episode_reward}')
             print(f'    episode length {episode_length}')
+            print(f'    info {info}')
+
+    def kernels(self):
+        kernels = self.driver.policy_net.conv1.weight.detach().clone()
+
+        #check size for sanity check
+        print(kernels.size())
+
+        # normalize to (0,1) range so that matplotlib
+        # can plot them
+        kernels = kernels - kernels.min()
+        kernels = kernels / kernels.max()
+        filter_img = torchvision.utils.make_grid(kernels, nrow = 16)
+        # change ordering since matplotlib requires images to 
+        # be (H, W, C)
+        plt.imshow(torch.Tensor.cpu(filter_img.permute(1, 2, 0)))
+
+        # You can directly save the image as well using
+        img = torchvision.utils.save_image(kernels, './encoder_conv1_filters.png', nrow = 16)
+        print('kernel saved')
