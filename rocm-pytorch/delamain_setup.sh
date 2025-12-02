@@ -1,6 +1,6 @@
 docker exec -it "$1" sh -c "mkdir /Delamain"
 docker cp . "$1":/Delamain
-docker exec -it "$1" sh -c "cd /Delamain; bash /Delamain/delamain_cont_setup.sh"
+docker exec -it "$1" sh -c "cd /Delamain; bash /Delamain/rocm-pytorch/delamain_cont_setup.sh"
 
 sleep 15m
 while true; do

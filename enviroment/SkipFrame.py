@@ -1,4 +1,6 @@
 import gymnasium as gym
+import torch
+import numpy
 
 class SkipFrame(gym.Wrapper):
     """
@@ -15,10 +17,23 @@ class SkipFrame(gym.Wrapper):
 
     def step(self, action):
         # Executes the action for the specified number of frames, accumulating rewards.
+        # total_reward = 0.0
+        # for _ in range(self._skip):
+        #     state, reward, terminated, truncated, info = self.env.step(action)
+        #     total_reward += reward
+        #     if terminated:
+        #         break
+        # return state, total_reward, terminated, truncated, info
         total_reward = 0.0
+        total_state = None
         for _ in range(self._skip):
             state, reward, terminated, truncated, info = self.env.step(action)
             total_reward += reward
             if terminated:
                 break
-        return state, total_reward, terminated, truncated, info
+            if total_state is None:
+                total_state = state
+            else:
+                total_state = numpy.concatenate((total_state, state), 2)
+                # total_state = torch.cat((total_state, state), 0)
+        return total_state, total_reward, terminated, truncated, info

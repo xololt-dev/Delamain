@@ -7,11 +7,13 @@ import datetime
 import torch.nn as nn
 import matplotlib
 import matplotlib.pyplot as plt
+import time
 
 from enviroment.Agent import Agent
 from enviroment.SkipFrame import SkipFrame
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
+from alternative_models.Delamain_2_1 import Delamain_2_1
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -29,6 +31,7 @@ class TrainingGround():
 
         self.batch_n = yamlValues['train']['batch_n'] if yamlValues['train']['batch_n'] else 32
         self.play_n_episodes = yamlValues['train']['play_n_episodes'] if yamlValues['train']['play_n_episodes'] else 3000
+        self.episode_lr_list = []
         self.episode_epsilon_list = []
         self.episode_reward_list = []
         self.episode_length_list = []
@@ -66,13 +69,16 @@ class TrainingGround():
                 raise Exception("No model file name passed in training params")
 
             self.driver.load_state = 'eval'
+            self.driver.epsilon_end = self.driver.epsilon = 0.0
         else:
             agent_args = dict(gamma=yamlValues['train']['gamma'],
                 epsilon=yamlValues['train']['epsilon'],
                 epsilon_end=yamlValues['train']['epsilon_end'],
                 epsilon_decay=yamlValues['train']['epsilon_decay'],
                 lr=yamlValues['train']['lr'],
-                buffer_size=yamlValues['train']['buffer_size'])
+                buffer_size=yamlValues['train']['buffer_size'],
+                skip_frames=yamlValues['env']['skip_frames'] * yamlValues['reporting']['when2learn'],
+                play_n_episodes=yamlValues['train']['play_n_episodes'])
             self.driver = Agent(self.state.shape, 
                 action_n, 
                 self.parse_class_name(yamlValues['model']['class_name']),
@@ -83,12 +89,18 @@ class TrainingGround():
         if yamlValues['model']['file_name']:
             self.driver.load('./training/saved_models', yamlValues['model']['file_name'])
 
+        if self.driver.target_net.is_prev_frame_needed():
+            self.state = np.concatenate((self.state, self.state), 2)
+        self.state = torch.tensor(self.state)
+
     def parse_class_name(self, class_name: str | None) -> nn.Module:
         match class_name:
             case 'Delamain':
                 return Delamain
             case 'Delamain_2':
                 return Delamain_2
+            case 'Delamain_2_1':
+                return Delamain_2_1
             case _:
                 return Delamain
 
@@ -113,26 +125,34 @@ class TrainingGround():
             updating = True
             loss_list = []
             self.episode_epsilon_list.append(self.driver.epsilon)
+            self.episode_lr_list.append(self.driver.scheduler.get_last_lr()[0])
 
+            # t1 = time.perf_counter(), time.process_time()
             while updating:
                 self.timestep_n += 1
                 episode_length += 1
 
-                if self.driver.target_net.is_prev_frame_needed():
-                    action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
-                else:
-                    action = self.driver.take_action(self.state)
+                # if self.driver.target_net.is_prev_frame_needed():
+                    # print('take_action:', self.state.shape)
+                    # action = self.driver.take_action(self.state)
+                    # action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                # else:
+                    # print(self.state.shape)
+                action = self.driver.take_action(self.state)
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
+                new_state = torch.tensor(new_state[:,:,:6])
                 episode_reward += reward
-                if self.driver.target_net.is_prev_frame_needed():
-                    self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
-                else:
-                    self.driver.store(self.state, action, reward, new_state, terminated)
+                # if self.driver.target_net.is_prev_frame_needed():
+                #     self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
+                # else:
+                self.driver.store(self.state, action, reward, new_state, terminated)
                 
                 # Move to the next state
                 self.previous_state = self.state
                 self.state = new_state
+                # self.state = np.split(new_state, 4, 2)
+                # print('new_state:', self.state.shape)
                 updating = not (terminated or truncated)
 
                 if self.timestep_n % self.when2sync == 0:
@@ -144,7 +164,6 @@ class TrainingGround():
 
                 if self.timestep_n % self.when2learn == 0:
                     q, loss = self.driver.update_net(self.batch_n)
-                    loss_list.append(loss)
 
 
                 if self.timestep_n % self.when2report == 0 and self.report_type == 'text':
@@ -152,6 +171,7 @@ class TrainingGround():
                     print(f'    episodes: {self.episode}')
                     print(f'    n_updates: {self.driver.n_updates}')
                     print(f'    epsilon: {self.driver.epsilon}')
+                    print(f'    lr: {self.driver.scheduler.get_last_lr()[0]}')
 
                 if self.timestep_n % self.when2eval == 0 and self.report_type == 'text':
                     rewards_tensor = torch.tensor(self.episode_reward_list,
@@ -172,12 +192,31 @@ class TrainingGround():
                     print(f'    episodes: {self.episode}')
                     print(f'    n_updates: {self.driver.n_updates}')
                     print(f'    epsilon: {self.driver.epsilon}')
+                    print(f'    lr: {self.driver.scheduler.get_last_lr()[0]}')
+                    epsl_end = self.driver.epsilon_end
+                    curr_epsl = self.driver.epsilon
+                    self.driver.epsilon_end = self.driver.epsilon = 0.0
                     self.eval()
+                    self.driver.epsilon_end = epsl_end
+                    self.driver.epsilon = curr_epsl
+
+            batch = self.driver.bufferLoss.sample(250).to('cpu')
+            for i in [x for x in batch if x is not None]:
+                loss_list.append(i.get('loss').item())
+            self.driver.bufferLoss.empty()
+            # t2 = time.perf_counter(), time.process_time()
+            # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
+            # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
+            # print()
 
             self.state, info = self.env.reset()
+            if self.driver.target_net.is_prev_frame_needed():
+                self.state = np.concatenate((self.state, self.state), 2)
+            self.state = torch.tensor(self.state)
 
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
+            # self.episode_loss_list.append(1)
             self.episode_loss_list.append(np.mean(loss_list))
             now_time = datetime.datetime.now()
             self.episode_date_list.append(now_time.date().strftime('%Y-%m-%d'))
@@ -194,9 +233,13 @@ class TrainingGround():
                     self.episode_length_list,
                     self.episode_loss_list,
                     self.episode_epsilon_list,
+                    self.episode_lr_list,
                     log_filename='Delamain_log_test.csv'
                     )
-    
+        self.env.close()
+        plt.ioff()
+        plt.show()
+
     def fine_tune(self):
         pass
 
@@ -236,6 +279,8 @@ class TrainingGround():
             print(f'    reward {episode_reward}')
             print(f'    episode length {episode_length}')
             print(f'    info {info}')
+
+        self.env.close()
 
     def kernels(self):
         kernels = self.driver.policy_net.conv1.weight.detach().clone()

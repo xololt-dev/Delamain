@@ -2,9 +2,10 @@ import numpy as np
 from typing import Union
 import os
 import csv
+import time
 
 import torch
-from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage
+from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorStorage
 from tensordict import TensorDict
 
 class Agent():
@@ -18,7 +19,10 @@ class Agent():
     epsilon_end: float = 0.05,
     epsilon_decay: float = 0.9999925,
     lr: float = 0.0002,
+    lr_decay: float = 1.0,
     buffer_size: int = 300000,
+    skip_frames: int = 4,
+    play_n_episodes: int = 3000,
   ):
     self.gamma = gamma
     self.epsilon = epsilon
@@ -26,22 +30,36 @@ class Agent():
     self.epsilon_decay = epsilon_decay
     self.action_n = action_n
     self.state_space_shape = state_space_shape
+    self.skip_frames = skip_frames
 
     self.device = "cuda" if torch.cuda.is_available() else "cpu"
     self.buffer_size = buffer_size
-    self.buffer = TensorDictReplayBuffer(
+    if self.device == 'cuda':
+        self.buffer = TensorDictReplayBuffer(
+                storage=LazyTensorStorage(
+                    buffer_size,
+                    device=self.device))
+    else:
+        self.buffer = TensorDictReplayBuffer(
                 storage=LazyMemmapStorage(
                     buffer_size,
-                    device='cpu'))
-    if self.device == 'cuda':
-        self.buffer.append_transform(lambda x: x.to(self.device))
+                    device=self.device))
+    self.bufferLoss = TensorDictReplayBuffer(
+                storage=LazyTensorStorage(
+                    100,
+                    device=self.device))
+    # if self.device == 'cuda':
+    #     self.buffer.append_transform(lambda x: x.to(self.device))
 
+    torch.set_float32_matmul_precision('high')
     self.policy_net = model().to(self.device)
     self.policy_net.compile()
     self.target_net = model().to(self.device)
     self.target_net.compile()
 
-    self.optimizer = torch.optim.Adam(self.target_net.parameters(), lr)
+    self.optimizer = torch.optim.Adam(self.target_net.parameters(), lr, eps=1e-7)
+    # self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(self.optimizer, lr_lambda=lambda epoch: lr_decay)
+    self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, pct_start=0.1, max_lr=lr*2, steps_per_epoch=int(1000/self.skip_frames), epochs=play_n_episodes)
     self.loss_fn = torch.nn.SmoothL1Loss()
 
     self.act_taken = 0
@@ -79,10 +97,12 @@ class Agent():
       self.buffer.add(
           TensorDict(
               {
-                  "state": state.detach().clone() if isinstance(state, torch.Tensor) else torch.tensor(state),
+                  "state": state.detach().clone(),
+                #   "state": state.detach().clone() if isinstance(state, torch.Tensor) else torch.tensor(state),
                   "action": torch.tensor(action),
                   "reward": torch.tensor(reward),
-                  "new_state": new_state.detach().clone() if isinstance(new_state, torch.Tensor) else torch.tensor(state),
+                  "new_state": new_state.detach().clone(),
+                #   "new_state": new_state.detach().clone() if isinstance(new_state, torch.Tensor) else torch.tensor(state),
                   "terminated": torch.tensor(terminated)
               },
               batch_size=[]
@@ -163,6 +183,7 @@ class Agent():
         self.n_updates += 1
         states, actions, rewards, \
             new_states, terminateds = self.get_samples(batch_size)
+        # print('states:', states.shape)
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
         with torch.no_grad():
@@ -173,8 +194,30 @@ class Agent():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        loss = loss.item()
-        return td_est, loss
+        self.scheduler.step()
+        # t2 = time.perf_counter(), time.process_time()
+        # print("Get steps")
+        # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
+        # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
+        # print()
+        # loss = loss.detach().clone().cpu().item()
+
+        self.bufferLoss.add(
+            TensorDict(
+                {
+                    "loss": loss.detach().clone(),
+                },
+                batch_size=[]
+            )
+        )
+
+        # loss = loss.item()
+        # t2 = time.perf_counter(), time.process_time()
+        # print("Get loss")
+        # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
+        # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
+        # print()
+        return td_est, None
 
   def save(self, save_dir: str, save_name: str):
         """
@@ -196,6 +239,7 @@ class Agent():
                 'upd_model_state_dict': self.target_net.state_dict(),
                 'frz_model_state_dict': self.policy_net.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.scheduler.state_dict(),
                 'action_number': self.act_taken,
                 'epsilon': self.epsilon
             },
@@ -225,9 +269,12 @@ class Agent():
         upd_net_param = loaded_model['upd_model_state_dict']
         frz_net_param = loaded_model['frz_model_state_dict']
         opt_param = loaded_model['optimizer_state_dict']
+        sched_param = loaded_model['scheduler_state_dict']
         self.target_net.load_state_dict(upd_net_param)
         self.policy_net.load_state_dict(frz_net_param)
         self.optimizer.load_state_dict(opt_param)
+        if sched_param:
+            self.scheduler.load_state_dict(sched_param)
 
         # Load replay buffer data separately
         # self.buffer._storage.data =
@@ -268,6 +315,7 @@ class Agent():
         length_list: list,
         loss_list: list,
         epsilon_list: list,
+        lr_list: list,
         log_filename: str = 'default_log.csv'
     ):
         """
@@ -287,6 +335,8 @@ class Agent():
             epsilon_list (list) : A list of epsilon values (exploration rates)
             during training.
 
+            lr_list (list) : A list of learning rate values recorded during training.
+
             log_filename (str) : The name of the CSV file to save the logs.
         """
         if not os.path.exists(self.log_dir):
@@ -296,7 +346,8 @@ class Agent():
                 ['reward']+reward_list,
                 ['length']+length_list,
                 ['loss']+loss_list,
-                ['epsilon']+epsilon_list]
+                ['epsilon']+epsilon_list,
+                ['lr']+lr_list]
         with open(self.log_dir+log_filename, 'w') as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerows(rows)
