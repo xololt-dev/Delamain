@@ -46,20 +46,20 @@ class Agent():
                     device=self.device))
     self.bufferLoss = TensorDictReplayBuffer(
                 storage=LazyTensorStorage(
-                    100,
+                    250,
                     device=self.device))
     # if self.device == 'cuda':
     #     self.buffer.append_transform(lambda x: x.to(self.device))
 
     torch.set_float32_matmul_precision('high')
-    self.policy_net = model().to(self.device)
+    self.policy_net = model().to(device=self.device, non_blocking=True)
     self.policy_net.compile()
-    self.target_net = model().to(self.device)
+    self.target_net = model().to(device=self.device, non_blocking=True)
     self.target_net.compile()
 
     self.optimizer = torch.optim.Adam(self.target_net.parameters(), lr, eps=1e-7)
-    # self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(self.optimizer, lr_lambda=lambda epoch: lr_decay)
-    self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, pct_start=0.1, max_lr=lr*2, steps_per_epoch=int(1000/self.skip_frames), epochs=play_n_episodes)
+    self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(self.optimizer, lr_lambda=lambda epoch: lr_decay)
+    # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(self.optimizer, pct_start=0.1, max_lr=lr*2, steps_per_epoch=int(1000/self.skip_frames), epochs=play_n_episodes)
     self.loss_fn = torch.nn.SmoothL1Loss()
 
     self.act_taken = 0
@@ -94,19 +94,33 @@ class Agent():
 
           terminated (bool) : A boolean indicating whether the episode has ended.
       """
+    #   self.buffer.add(
+    #       TensorDict(
+    #           {
+    #               "state": torch.as_tensor(state),
+    #             #   "state": state.detach().clone(),
+    #             #   "state": state.detach().clone() if isinstance(state, torch.Tensor) else torch.tensor(state),
+    #               "action": torch.tensor(action),
+    #               "reward": torch.tensor(reward),
+    #               "new_state": torch.as_tensor(new_state),
+    #             #   "new_state": new_state.detach().clone(),
+    #             #   "new_state": new_state.detach().clone() if isinstance(new_state, torch.Tensor) else torch.tensor(state),
+    #               "terminated": torch.tensor(terminated)
+    #           },
+    #           batch_size=[]
+    #       )
+    #   )
       self.buffer.add(
-          TensorDict(
-              {
-                  "state": state.detach().clone(),
-                #   "state": state.detach().clone() if isinstance(state, torch.Tensor) else torch.tensor(state),
-                  "action": torch.tensor(action),
-                  "reward": torch.tensor(reward),
-                  "new_state": new_state.detach().clone(),
-                #   "new_state": new_state.detach().clone() if isinstance(new_state, torch.Tensor) else torch.tensor(state),
-                  "terminated": torch.tensor(terminated)
-              },
-              batch_size=[]
-          )
+        TensorDict(
+            {
+                "state": torch.as_tensor(state, dtype=torch.uint8),
+                "action": torch.as_tensor(action, dtype=torch.uint8),
+                "reward": torch.as_tensor(reward, dtype=torch.float32),
+                "new_state": torch.as_tensor(new_state, dtype=torch.uint8),
+                "terminated": torch.as_tensor(terminated, dtype=torch.bool)
+            },
+            batch_size=[]
+        )
       )
 
   def get_samples(self, batch_size: int):
@@ -129,10 +143,12 @@ class Agent():
             terminateds (torch.Tensor) : A batch of sampled termination flags.
         """
         batch = self.buffer.sample(batch_size)
-        states = batch.get('state').type(torch.Tensor).to(self.device)
-        new_states = batch.get('new_state').type(torch.Tensor).to(self.device)
-        actions = batch.get('action').squeeze().to(self.device)
-        rewards = batch.get('reward').squeeze().to(self.device)
+        states = batch.get('state').to(dtype=torch.float32, device=self.device)
+        # states = batch.get('state').type(torch.Tensor).to(self.device)
+        new_states = batch.get('new_state').to(dtype=torch.float32, device=self.device)
+        # new_states = batch.get('new_state').type(torch.Tensor).to(self.device)
+        actions = batch.get('action').squeeze().to(dtype=torch.long, device=self.device)
+        rewards = batch.get('reward').squeeze().to(dtype=torch.float32, device=self.device)
         terminateds = batch.get('terminated').squeeze().to(self.device)
         return states, actions, rewards, new_states, terminateds
 
@@ -150,15 +166,28 @@ class Agent():
         if np.random.rand() < self.epsilon:
             action_idx = np.random.randint(self.action_n)
         else:
-            state = (state.detach().clone().to(torch.float).to(self.device) 
-                if isinstance(state, torch.Tensor) else 
-                    torch.tensor(
-                    state,
-                    dtype=torch.float,
-                    device=self.device
-                )).unsqueeze(0)
-            action_values = self.target_net(state)
+            # with torch.no_grad():
+            if isinstance(state, np.ndarray):
+                state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device)
+            else:
+                state_t = state.to(dtype=torch.float32, device=self.device)
+
+            # Add batch dimension
+            state_t = state_t.unsqueeze(0)
+
+            action_values = self.target_net(state_t)
             action_idx = torch.argmax(action_values, axis=1).item()
+            # state = (state
+            # # .detach().clone()
+            # .to(dtype=torch.float, device=self.device) 
+            #     if isinstance(state, torch.Tensor) else 
+            #         torch.as_tensor(
+            #         state,
+            #         dtype=torch.float,
+            #         device=self.device
+            #     )).unsqueeze(0)
+            # action_values = self.target_net(state)
+            # action_idx = torch.argmax(action_values, axis=1).item()
         if self.epsilon > self.epsilon_end:
             self.epsilon *= self.epsilon_decay
         else:
@@ -183,7 +212,7 @@ class Agent():
         self.n_updates += 1
         states, actions, rewards, \
             new_states, terminateds = self.get_samples(batch_size)
-        # print('states:', states.shape)
+        # print('states:', states.shape, 'actions: ', actions)
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
         with torch.no_grad():
@@ -193,6 +222,7 @@ class Agent():
         loss = self.loss_fn(td_est, td_tar)
         self.optimizer.zero_grad()
         loss.backward()
+        # torch.nn.utils.clip_grad_value_(self.target_net.parameters(), 1.0)
         self.optimizer.step()
         self.scheduler.step()
         # t2 = time.perf_counter(), time.process_time()
@@ -205,7 +235,7 @@ class Agent():
         self.bufferLoss.add(
             TensorDict(
                 {
-                    "loss": loss.detach().clone(),
+                    "loss": loss.detach().clone().to(device=self.device, non_blocking=True),
                 },
                 batch_size=[]
             )
@@ -217,7 +247,7 @@ class Agent():
         # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
         # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
         # print()
-        return td_est, None
+        return td_est, loss
 
   def save(self, save_dir: str, save_name: str):
         """

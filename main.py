@@ -2,8 +2,6 @@ import torch
 
 from TrainingGround import TrainingGround
 
-torch.set_float32_matmul_precision('high')
-
 def main():
     tg = TrainingGround()
     tg.start()

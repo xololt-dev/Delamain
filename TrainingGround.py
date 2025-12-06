@@ -14,6 +14,8 @@ from enviroment.SkipFrame import SkipFrame
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
+from alternative_models.Delamain_2_2 import Delamain_2_2
+from alternative_models.Delamain_2_3 import Delamain_2_3
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -89,10 +91,6 @@ class TrainingGround():
         if yamlValues['model']['file_name']:
             self.driver.load('./training/saved_models', yamlValues['model']['file_name'])
 
-        if self.driver.target_net.is_prev_frame_needed():
-            self.state = np.concatenate((self.state, self.state), 2)
-        self.state = torch.tensor(self.state)
-
     def parse_class_name(self, class_name: str | None) -> nn.Module:
         match class_name:
             case 'Delamain':
@@ -101,6 +99,10 @@ class TrainingGround():
                 return Delamain_2
             case 'Delamain_2_1':
                 return Delamain_2_1
+            case 'Delamain_2_2':
+                return Delamain_2_2
+            case 'Delamain_2_3':
+                return Delamain_2_3
             case _:
                 return Delamain
 
@@ -126,6 +128,7 @@ class TrainingGround():
             loss_list = []
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.scheduler.get_last_lr()[0])
+            print(self.driver.scheduler.get_last_lr())
 
             # t1 = time.perf_counter(), time.process_time()
             while updating:
@@ -133,26 +136,24 @@ class TrainingGround():
                 episode_length += 1
 
                 # if self.driver.target_net.is_prev_frame_needed():
-                    # print('take_action:', self.state.shape)
-                    # action = self.driver.take_action(self.state)
                     # action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                    # action = self.driver.take_action(self.state)
                 # else:
-                    # print(self.state.shape)
                 action = self.driver.take_action(self.state)
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
-                new_state = torch.tensor(new_state[:,:,:6])
+
                 episode_reward += reward
                 # if self.driver.target_net.is_prev_frame_needed():
-                #     self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
+                    # self.driver.store(self.state, action, reward, new_state, terminated)
+                    # self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
                 # else:
                 self.driver.store(self.state, action, reward, new_state, terminated)
-                
+
+
                 # Move to the next state
-                self.previous_state = self.state
+                # self.previous_state = self.state
                 self.state = new_state
-                # self.state = np.split(new_state, 4, 2)
-                # print('new_state:', self.state.shape)
                 updating = not (terminated or truncated)
 
                 if self.timestep_n % self.when2sync == 0:
@@ -196,7 +197,10 @@ class TrainingGround():
                     epsl_end = self.driver.epsilon_end
                     curr_epsl = self.driver.epsilon
                     self.driver.epsilon_end = self.driver.epsilon = 0.0
-                    self.eval()
+                    self.driver.policy_net.eval()
+                    with torch.no_grad():
+                        self.eval()
+                    self.driver.policy_net.train()
                     self.driver.epsilon_end = epsl_end
                     self.driver.epsilon = curr_epsl
 
@@ -210,13 +214,9 @@ class TrainingGround():
             # print()
 
             self.state, info = self.env.reset()
-            if self.driver.target_net.is_prev_frame_needed():
-                self.state = np.concatenate((self.state, self.state), 2)
-            self.state = torch.tensor(self.state)
 
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
-            # self.episode_loss_list.append(1)
             self.episode_loss_list.append(np.mean(loss_list))
             now_time = datetime.datetime.now()
             self.episode_date_list.append(now_time.date().strftime('%Y-%m-%d'))
@@ -236,6 +236,8 @@ class TrainingGround():
                     self.episode_lr_list,
                     log_filename='Delamain_log_test.csv'
                     )
+        self.driver.save(self.driver.save_dir, 'Delamain')
+
         self.env.close()
         plt.ioff()
         plt.show()
@@ -251,10 +253,12 @@ class TrainingGround():
             tracks_iterable = self.eval_tracks
         else:
             tracks_iterable = range(0, self.eval_tracks)
+        actions = np.zeros(5, dtype=np.uint8)
 
         for track in tracks_iterable:
             seed = track if isinstance(self.eval_tracks, list) else self.env.np_random.integers(0, 9223372036854775807, dtype=int)
             self.state, info = self.env.reset(seed=seed)
+            actions.fill(0)
 
             episode_reward = 0
             episode_length = 0
@@ -264,14 +268,18 @@ class TrainingGround():
             while updating:
                 episode_length += 1
                 
-                if self.driver.target_net.is_prev_frame_needed():
-                    action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
-                else:
-                    action = self.driver.take_action(self.state)
+                # if self.driver.target_net.is_prev_frame_needed():
+                #     # action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                #     action = self.driver.take_action(self.state)
+                # else:
+                action = self.driver.take_action(self.state)
+                actions[action] += 1
+
                 new_state, reward, terminated, truncated, info = self.env.step(action)
+
                 episode_reward += reward
 
-                self.previous_state = self.state
+                # self.previous_state = self.state
                 self.state = new_state
                 updating = not (terminated or truncated)
             
@@ -279,6 +287,7 @@ class TrainingGround():
             print(f'    reward {episode_reward}')
             print(f'    episode length {episode_length}')
             print(f'    info {info}')
+            print(f'    actions {actions}')
 
         self.env.close()
 
