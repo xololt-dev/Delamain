@@ -1,24 +1,23 @@
 model:
-  class_name: 'Delamain_2_1'
+  class_name: 'Delamain_2_5'
   file_name: 
   # file_name: 'Delamain_21_11.pt'
   # file_name: 'Delamain_732290.pt'
-  # 'Delamain_2_23_11.pt'
 env:
   random_colors: False
   skip_frames: 4
   mode: 'train'
 train:
-  batch_n: 128
-  play_n_episodes: 3000
+  batch_n: 64
+  play_n_episodes: 5000
   gamma: 0.95
   epsilon: 1.0
   epsilon_end: 0.05
-  epsilon_decay: 0.999985
-  # epsilon_decay: 0.9999925
-  lr: 0.00015
+  epsilon_decay: 0.9999925
+  lr: 0.002
   lr_decay: 0.9999925
-  buffer_size: 80000
+  buffer_size: 42500
+  # buffer_size: 77500
 eval:
   tracks: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]
   video: False

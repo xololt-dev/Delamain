@@ -16,16 +16,16 @@ class Delamain_2(DelamainBase):
         self.fc3 = nn.Linear(60, 5)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print('pre permute:', x.size())
-        x = x.transpose(2,3).permute(1, 0, 4, 2, 3)
-        # print('post permute:', x.size())
         # Permute the dimensions to have channels first (batch, channels, height, width)
-        current = x[0]
+        # x = x.transpose(2,3).permute(1, 0, 4, 2, 3)
+        x = x.permute(0, 3, 1, 2)
+
+        current = x[:,-3:,:,:]
         current = self.pool(F.relu(self.conv1(current)))
         current = F.relu(self.conv2(current))
         current = self.pool(F.relu(self.conv3(current)))
 
-        past = x[1]
+        past = x[:,0:-3,:,:]
         past = self.pool(F.relu(self.conv1(past)))
         past = F.relu(self.conv2(past))
         past = self.pool(F.relu(self.conv3(past)))

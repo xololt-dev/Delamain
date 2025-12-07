@@ -51,7 +51,6 @@ class Agent():
     # if self.device == 'cuda':
     #     self.buffer.append_transform(lambda x: x.to(self.device))
 
-    torch.set_float32_matmul_precision('high')
     self.policy_net = model().to(device=self.device, non_blocking=True)
     self.policy_net.compile()
     self.target_net = model().to(device=self.device, non_blocking=True)
@@ -143,9 +142,9 @@ class Agent():
             terminateds (torch.Tensor) : A batch of sampled termination flags.
         """
         batch = self.buffer.sample(batch_size)
-        states = batch.get('state').to(dtype=torch.float32, device=self.device)
+        states = batch.get('state').to(dtype=torch.uint8, device=self.device)
         # states = batch.get('state').type(torch.Tensor).to(self.device)
-        new_states = batch.get('new_state').to(dtype=torch.float32, device=self.device)
+        new_states = batch.get('new_state').to(dtype=torch.uint8, device=self.device)
         # new_states = batch.get('new_state').type(torch.Tensor).to(self.device)
         actions = batch.get('action').squeeze().to(dtype=torch.long, device=self.device)
         rewards = batch.get('reward').squeeze().to(dtype=torch.float32, device=self.device)
@@ -177,6 +176,7 @@ class Agent():
 
             action_values = self.target_net(state_t)
             action_idx = torch.argmax(action_values, axis=1).item()
+
             # state = (state
             # # .detach().clone()
             # .to(dtype=torch.float, device=self.device) 

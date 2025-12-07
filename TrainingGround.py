@@ -14,8 +14,7 @@ from enviroment.SkipFrame import SkipFrame
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
-from alternative_models.Delamain_2_2 import Delamain_2_2
-from alternative_models.Delamain_2_3 import Delamain_2_3
+from alternative_models.Delamain_2_5 import Delamain_2_5
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -51,6 +50,7 @@ class TrainingGround():
         self.report_type = yamlValues['reporting']['report_type']
         
         self.eval_tracks = yamlValues['eval']['tracks']
+        self.class_name = yamlValues['model']['class_name'] if yamlValues['model']['class_name'] else 'Delamain'
 
         self.env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array", domain_randomize=yamlValues['env']['random_colors'] if yamlValues['env']['random_colors'] else False)
         self.env = SkipFrame(self.env, skip=yamlValues['env']['skip_frames'] if yamlValues['env']['skip_frames'] else 4)
@@ -78,6 +78,7 @@ class TrainingGround():
                 epsilon_end=yamlValues['train']['epsilon_end'],
                 epsilon_decay=yamlValues['train']['epsilon_decay'],
                 lr=yamlValues['train']['lr'],
+                lr_decay=yamlValues['train']['lr_decay'],
                 buffer_size=yamlValues['train']['buffer_size'],
                 skip_frames=yamlValues['env']['skip_frames'] * yamlValues['reporting']['when2learn'],
                 play_n_episodes=yamlValues['train']['play_n_episodes'])
@@ -99,10 +100,8 @@ class TrainingGround():
                 return Delamain_2
             case 'Delamain_2_1':
                 return Delamain_2_1
-            case 'Delamain_2_2':
-                return Delamain_2_2
-            case 'Delamain_2_3':
-                return Delamain_2_3
+            case 'Delamain_2_5':
+                return Delamain_2_5
             case _:
                 return Delamain
 
@@ -128,10 +127,10 @@ class TrainingGround():
             loss_list = []
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.scheduler.get_last_lr()[0])
-            print(self.driver.scheduler.get_last_lr())
 
             # t1 = time.perf_counter(), time.process_time()
             while updating:
+                # t1 = time.perf_counter(), time.process_time()
                 self.timestep_n += 1
                 episode_length += 1
 
@@ -140,16 +139,16 @@ class TrainingGround():
                     # action = self.driver.take_action(self.state)
                 # else:
                 action = self.driver.take_action(self.state)
-
+                # torch.cuda.synchronize()
+                # t1 = time.perf_counter(), time.process_time()
                 new_state, reward, terminated, truncated, info = self.env.step(action)
-
+                # t2 = time.perf_counter(), time.process_time()
+                # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
+                # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
+                # print()
                 episode_reward += reward
-                # if self.driver.target_net.is_prev_frame_needed():
-                    # self.driver.store(self.state, action, reward, new_state, terminated)
-                    # self.driver.store(torch.tensor(np.array([self.state, self.previous_state])), action, reward, torch.tensor(np.array([new_state, self.state])), terminated)
-                # else:
-                self.driver.store(self.state, action, reward, new_state, terminated)
 
+                self.driver.store(self.state, action, reward, new_state, terminated)
 
                 # Move to the next state
                 # self.previous_state = self.state
@@ -161,10 +160,15 @@ class TrainingGround():
                     self.driver.policy_net.load_state_dict(upd_net_param)
 
                 if self.timestep_n % self.when2save == 0:
-                    self.driver.save(self.driver.save_dir, 'Delamain')
+                    self.driver.save(self.driver.save_dir, self.class_name)
 
                 if self.timestep_n % self.when2learn == 0:
                     q, loss = self.driver.update_net(self.batch_n)
+
+                # t2 = time.perf_counter(), time.process_time()
+                # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
+                # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
+                # print()
 
 
                 if self.timestep_n % self.when2report == 0 and self.report_type == 'text':
@@ -208,12 +212,11 @@ class TrainingGround():
             for i in [x for x in batch if x is not None]:
                 loss_list.append(i.get('loss').item())
             self.driver.bufferLoss.empty()
+            self.state, info = self.env.reset()
             # t2 = time.perf_counter(), time.process_time()
             # print(f" Real time: {t2[0] - t1[0]:.2f} seconds")
             # print(f" CPU time: {t2[1] - t1[1]:.2f} seconds")
             # print()
-
-            self.state, info = self.env.reset()
 
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
@@ -234,9 +237,9 @@ class TrainingGround():
                     self.episode_loss_list,
                     self.episode_epsilon_list,
                     self.episode_lr_list,
-                    log_filename='Delamain_log_test.csv'
+                    log_filename=f'{self.class_name}_log_test.csv'
                     )
-        self.driver.save(self.driver.save_dir, 'Delamain')
+        self.driver.save(self.driver.save_dir, self.class_name)
 
         self.env.close()
         plt.ioff()
