@@ -1,6 +1,6 @@
 import gymnasium as gym
-import torch
 import numpy as np
+
 
 class SkipFrame(gym.Wrapper):
     """
@@ -11,6 +11,7 @@ class SkipFrame(gym.Wrapper):
 
         skip (int) : The number of frames to skip.
     """
+
     def __init__(self, env, skip):
         super().__init__(env)
         self._skip = skip
@@ -28,8 +29,14 @@ class SkipFrame(gym.Wrapper):
             if terminated:
                 break
 
-        return self.frames.copy(), np.sum(self.rewards, dtype=np.float32), terminated, truncated, info
-    
+        return (
+            self.frames.copy(),
+            np.sum(self.rewards, dtype=np.float32),
+            terminated,
+            truncated,
+            info,
+        )
+
     def reset(self, seed: int | None = None, options: dict[str] | None = None):
         self.rewards.fill(0)
         state, info = self.env.reset(seed=seed, options=options)
