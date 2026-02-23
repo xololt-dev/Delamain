@@ -3,3 +3,4 @@ gymnasium[box2d]
 gymnasium[other]
 torchrl
 pyyaml
+torchvision
