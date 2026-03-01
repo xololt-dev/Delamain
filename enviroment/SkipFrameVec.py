@@ -1,0 +1,54 @@
+import numpy as np
+import gymnasium as gym
+from typing import Any
+
+
+class SkipFrameVec(gym.vector.VectorWrapper):
+    """
+    A wrapper for skipping frames in the environment to speed up training.
+
+    Parameters:
+        env (gymnasium.vector.VectorEnv) : The vector environments to apply the wrapper to.
+
+        skip (int) : The number of frames to skip.
+    """
+
+    def __init__(self, env: gym.vector.AsyncVectorEnv | gym.vector.SyncVectorEnv, skip: int):
+        super().__init__(env)
+        self._skip = skip
+        self.frames = np.zeros((env.observation_space.shape[0], 96, 96, skip * 3), dtype=np.uint8)
+        self.rewards = np.zeros((env.observation_space.shape[0], skip), dtype=np.float32)
+        self._negative_in_row = 0
+        print(env.observation_space)
+
+    def step(self, actions):
+        # Executes the action for the specified number of frames, accumulating rewards.
+        for _ in range(self._skip):
+            self.frames = np.roll(self.frames, -3, axis=3)
+            self.rewards = np.roll(self.rewards, -1)
+            state, reward, terminated, truncated, info = self.env.step(actions)
+
+            self.rewards[:, -1] = reward
+            self.frames[:, :, :, -3:] = state
+
+            if np.any(terminated):
+                break
+
+        return (
+            self.frames.copy(),
+            np.sum(self.rewards, dtype=np.float32, axis=1),
+            terminated,
+            truncated,
+            info,
+        )
+
+    def reset(self, seed: int | list[int] | None = None, options: dict[str, Any] | None = None):
+        self.rewards.fill(0)
+        self.frames.fill(0)
+        # self._negative_in_row = 0
+        state, info = self.env.reset(seed=seed, options=options)
+        for _ in range(self._skip):
+            self.frames = np.roll(self.frames, -3, axis=3)
+            self.frames[:, :, :, -3:] = np.copy(state)
+
+        return self.frames.copy(), info

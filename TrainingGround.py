@@ -10,7 +10,9 @@ import matplotlib.pyplot as plt
 import time
 
 from enviroment.Agent import Agent
+from enviroment.AgentPPO import AgentPPO
 from enviroment.SkipFrame import SkipFrame
+from enviroment.SkipFrameVec import SkipFrameVec
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
@@ -36,9 +38,9 @@ class TrainingGround:
             except yaml.YAMLError as exc:
                 raise Exception(exc)
 
-        self.batch_n = yamlValues.get(yamlValues["train"]["batch_n"], 32)
-        self.play_n_episodes = yamlValues.get(
-            yamlValues["train"]["play_n_episodes"], 3000
+        self.batch_n = yamlValues["train"].get("batch_n", 32)
+        self.play_n_episodes = yamlValues["train"].get(
+            "play_n_episodes", 3000
         )
         self.episode_lr_list = []
         self.episode_epsilon_list = []
@@ -55,14 +57,26 @@ class TrainingGround:
         self.eval_tracks = yamlValues["eval"].get("tracks")
         self.class_name = yamlValues["model"].get("class_name", "Delamain")
 
-        self.env = gym.make(
-            self.ENVIROMENT,
-            continuous=False,
-            render_mode="rgb_array",
+        self.env = gym.make_vec(
+            self.ENVIROMENT, 
+            num_envs=yamlValues["env"].get("envs_num", 4), 
+            vectorization_mode=gym.VectorizeMode.ASYNC, 
+            continuous=False, 
+            render_mode="rgb_array", 
             domain_randomize=yamlValues["env"].get("random_colors", False),
         )
-        self.env = SkipFrame(self.env, skip=yamlValues["env"].get("skip_frames", 4))
-        if yamlValues["eval"]["video"]:
+        
+        self.env = SkipFrameVec(self.env, skip=yamlValues["env"].get("skip_frames", 4))
+        # self.env = gym.make(
+        #     self.ENVIROMENT,
+        #     continuous=False,
+        #     render_mode="rgb_array",
+        #     domain_randomize=yamlValues["env"].get("random_colors", False),
+        # )
+        # self.env = SkipFrame(self.env, skip=yamlValues["env"].get("skip_frames", 4))
+        
+
+        if yamlValues["eval"]["video"] and False:
             self.env = gym.wrappers.RecordVideo(
                 self.env,
                 video_folder=self.VIDEO_DIR,  # Folder to save videos
@@ -76,9 +90,9 @@ class TrainingGround:
 
         self.state, info = self.env.reset()
         self.previous_state = self.state
-        action_n = self.env.action_space.n
+        action_n = self.env.single_action_space.n if yamlValues["env"].get("vec", False) else self.env.action_space.n
         if yamlValues["env"]["mode"] == "eval":
-            self.driver = Agent(
+            self.driver = AgentPPO(
                 self.state.shape,
                 action_n,
                 self.parse_class_name(yamlValues["model"]["class_name"]),
@@ -101,8 +115,9 @@ class TrainingGround:
                 skip_frames=yamlValues["env"]["skip_frames"]
                 * yamlValues["reporting"]["when2learn"],
                 play_n_episodes=yamlValues["train"]["play_n_episodes"],
+                vec=yamlValues["env"]["vec"],
             )
-            self.driver = Agent(
+            self.driver = AgentPPO(
                 self.state.shape,
                 action_n,
                 self.parse_class_name(yamlValues["model"]["class_name"]),
@@ -149,6 +164,12 @@ class TrainingGround:
                 return self.train()
 
     def train(self):
+        # [MODIFICATION] Vectorized tracking arrays (size n)
+        # Assumes self.env is a vectorized environment (e.g., gym.vector.make)
+        num_envs = self.env.num_envs 
+        current_ep_rewards = np.zeros(num_envs)
+        current_ep_lengths = np.zeros(num_envs)
+
         while self.episode <= self.play_n_episodes:
             self.episode += 1
             episode_reward = 0
@@ -162,25 +183,70 @@ class TrainingGround:
                 self.timestep_n += 1
                 episode_length += 1
 
-                # if self.driver.target_net.is_prev_frame_needed():
-                # action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
+                # --- ORIGINAL ---
                 # action = self.driver.take_action(self.state)
-                # else:
-                action = self.driver.take_action(self.state)
-                # torch.cuda.synchronize()
-                new_state, reward, terminated, truncated, info = self.env.step(action)
-                episode_reward += reward
+                # new_state, reward, terminated, truncated, info = self.env.step(action)
+                # episode_reward += reward
+                # 
+                # self.driver.store(self.state, action, reward, new_state, terminated)
 
-                self.driver.store(self.state, action, reward, new_state, terminated)
+                # --- MODIFICATION 1: Support PPO log_prob output while maintaining DQN compatibility ---
+                action_out = self.driver.take_action(self.state)
+                if isinstance(action_out, tuple): # PPO returns (action, log_prob)
+                    action, log_prob = action_out
+                else: # DQN returns just action
+                    action = action_out
+                    log_prob = None
+
+                new_state, reward, terminated, truncated, info = self.env.step(action)
+                # episode_reward += reward
+                # Accumulate stats for each active environment
+                current_ep_rewards += reward
+                current_ep_lengths += 1
+
+                # Pass log_prob only if using PPO
+                if log_prob is not None:
+                    self.driver.store(self.state, action, reward, new_state, terminated, log_prob=log_prob)
+                else:
+                    self.driver.store(self.state, action, reward, new_state, terminated)
+                # --- END MODIFICATION 1 ---
 
                 # Move to the next state
                 # self.previous_state = self.state
                 self.state = new_state
-                updating = not (terminated or truncated)
+                updating = not (terminated.any() or truncated.any())
+                # updating = not (terminated or truncated)
 
+                dones = np.logical_or(terminated, truncated)
+                for i in range(num_envs):
+                    if dones[i]:
+                        # self.episode += 1
+                        
+                        # Log the completed episode for this specific car
+                        self.episode_reward_list.append(current_ep_rewards[i])
+                        self.episode_length_list.append(current_ep_lengths[i])
+                        self.episode_epsilon_list.append(self.driver.epsilon)
+                        self.episode_lr_list.append(self.driver.scheduler.get_last_lr()[0])
+                        
+                        now_time = datetime.datetime.now()
+                        self.episode_date_list.append(now_time.date().strftime('%Y-%m-%d'))
+                        self.episode_time_list.append(now_time.time().strftime('%H:%M:%S'))
+
+                        # Reset trackers for this specific car, as it auto-resets
+                        current_ep_rewards[i] = 0
+                        current_ep_lengths[i] = 0
+
+                # --- ORIGINAL ---
+                # if self.timestep_n % self.when2sync == 0:
+                    # upd_net_param = self.driver.target_net.state_dict()
+                    # self.driver.policy_net.load_state_dict(upd_net_param)
+                
+                # --- MODIFICATION 2: Only sync if using DQN (PPO doesn't use target_net) ---
                 if self.timestep_n % self.when2sync == 0:
-                    upd_net_param = self.driver.target_net.state_dict()
-                    self.driver.policy_net.load_state_dict(upd_net_param)
+                    if getattr(self.driver, 'is_ppo', False) == False: 
+                        upd_net_param = self.driver.target_net.state_dict()
+                        self.driver.policy_net.load_state_dict(upd_net_param)
+                # --- END MODIFICATION 2 ---
 
                 if self.timestep_n % self.when2save == 0:
                     self.driver.save(self.driver.save_dir, self.class_name)
@@ -224,24 +290,38 @@ class TrainingGround:
                     curr_epsl = self.driver.epsilon
                     self.driver.epsilon_end = self.driver.epsilon = 0.0
                     self.driver.policy_net.eval()
+                    self.driver.load_state = "eval"
                     with torch.no_grad():
                         self.eval()
+                    self.driver.load_state = "train"
                     self.driver.policy_net.train()
                     self.driver.epsilon_end = epsl_end
                     self.driver.epsilon = curr_epsl
 
-            batch = self.driver.bufferLoss.sample(250).to("cpu")
-            for i in [x for x in batch if x is not None]:
-                loss_list.append(i.get("loss").item())
-            self.driver.bufferLoss.empty()
+            # --- ORIGINAL ---
+            # batch = self.driver.bufferLoss.sample(250).to("cpu")
+            # for i in [x for x in batch if x is not None]:
+            #     loss_list.append(i.get("loss").item())
+            # self.driver.bufferLoss.empty()
+            # --- MODIFICATION 3: Safely sample from bufferLoss (Protects against empty/small buffers) ---
+            buffer_len = len(self.driver.bufferLoss)
+            if buffer_len > 0:
+                sample_size = min(250, buffer_len) # Sample 250, or whatever is available
+                batch = self.driver.bufferLoss.sample(sample_size).to('cpu')
+                for i in [x for x in batch if x is not None]:
+                    loss_list.append(i.get('loss').item())
+                self.driver.bufferLoss.empty()
+            else:
+                loss_list.append(0.0) # No network updates happened during this specific episode
+            # --- END MODIFICATION 3 ---
             self.state, info = self.env.reset()
 
-            self.episode_reward_list.append(episode_reward)
-            self.episode_length_list.append(episode_length)
-            self.episode_loss_list.append(np.mean(loss_list))
-            now_time = datetime.datetime.now()
-            self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
-            self.episode_time_list.append(now_time.time().strftime("%H:%M:%S"))
+            # self.episode_reward_list.append(episode_reward)
+            # self.episode_length_list.append(episode_length)
+            # self.episode_loss_list.append(np.mean(loss_list))
+            # now_time = datetime.datetime.now()
+            # self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
+            # self.episode_time_list.append(now_time.time().strftime("%H:%M:%S"))
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(
@@ -279,12 +359,15 @@ class TrainingGround:
         actions = np.zeros(5, dtype=np.uint8)
 
         for track in tracks_iterable:
-            seed = (
+            seed: int = (
                 track
                 if isinstance(self.eval_tracks, list)
                 else self.env.np_random.integers(0, 9223372036854775807, dtype=int)
             )
-            self.state, info = self.env.reset(seed=seed)
+            seed_arr: list[int] = []
+            for i in range(self.env.num_envs):
+                seed_arr.append(seed)
+            self.state, info = self.env.reset(seed=seed_arr)
             actions.fill(0)
 
             episode_reward = 0
@@ -299,16 +382,35 @@ class TrainingGround:
                 #     # action = self.driver.take_action(torch.tensor(np.array([self.state, self.previous_state])))
                 #     action = self.driver.take_action(self.state)
                 # else:
-                action = self.driver.take_action(self.state)
-                actions[action] += 1
+                # --- ORIGINAL ---
+                # action = self.driver.take_action(self.state)
+                # actions[action] += 1
+
+                action_out = self.driver.take_action(self.state)
+                if isinstance(action_out, tuple): # PPO returns (action, log_prob)
+                    action, log_prob = action_out
+                else: # DQN returns just action
+                    action = action_out
+                    log_prob = None
+                if isinstance(action, int):
+                    actions[action] += 1
+                elif isinstance(action, list):
+                    actions[action[0]] += 1
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
 
-                episode_reward += reward
+                if isinstance(reward, np.ndarray):
+                    episode_reward += reward[0]
+                else:
+                    episode_reward += reward
 
                 # self.previous_state = self.state
                 self.state = new_state
-                updating = not (terminated or truncated)
+                if isinstance(terminated, bool):
+                    updating = not (terminated or truncated)
+                else:
+                    updating = not (terminated[0] or truncated[0])
+                
 
             print(f"Track seed: {seed}")
             print(f"    reward {episode_reward}")
@@ -316,7 +418,7 @@ class TrainingGround:
             print(f"    info {info}")
             print(f"    actions {actions}")
 
-        self.env.close()
+        # self.env.close()
 
     def kernels(self):
         kernels = self.driver.policy_net.conv1.weight.detach().clone()
