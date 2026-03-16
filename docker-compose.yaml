@@ -1,0 +1,22 @@
+services:
+  rocm-pytorch:
+    # image: rocm/pytorch:latest
+    build: .
+    image: my-rocm-app
+    container_name: rocm_pytorch_container
+    # Keep the container running and allow interactive terminal
+    stdin_open: true
+    shm_size: "12gb"
+    cpus: 6
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    ipc: host
+    volumes:
+      - .:/app
