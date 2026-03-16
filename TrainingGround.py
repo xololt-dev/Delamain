@@ -174,10 +174,12 @@ class TrainingGround:
             self.episode += 1
             episode_reward = 0
             episode_length = 0
+            current_ep_rewards.fill(0) 
+            current_ep_lengths.fill(0)
             updating = True
             loss_list = []
-            self.episode_epsilon_list.append(self.driver.epsilon)
-            self.episode_lr_list.append(self.driver.get_lr())
+            # self.episode_epsilon_list.append(self.driver.epsilon)
+            # self.episode_lr_list.append(self.driver.get_lr())
 
             while updating:
                 self.timestep_n += 1
@@ -226,7 +228,7 @@ class TrainingGround:
                         self.episode_reward_list.append(current_ep_rewards[i])
                         self.episode_length_list.append(current_ep_lengths[i])
                         self.episode_epsilon_list.append(self.driver.epsilon)
-                        self.episode_lr_list.append(self.driver.scheduler.get_last_lr()[0])
+                        self.episode_lr_list.append(self.driver.get_lr())
                         
                         now_time = datetime.datetime.now()
                         self.episode_date_list.append(now_time.date().strftime('%Y-%m-%d'))
@@ -249,7 +251,7 @@ class TrainingGround:
                 # --- END MODIFICATION 2 ---
 
                 if self.timestep_n % self.when2save == 0:
-                    self.driver.save(self.driver.save_dir, self.class_name)
+                    self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
                 if self.timestep_n % self.when2learn == 0:
                     q, loss = self.driver.update_net(self.batch_n)
@@ -265,6 +267,9 @@ class TrainingGround:
                     print(f"    lr: {self.driver.get_lr()}")
 
                 if self.timestep_n % self.when2eval == 0 and self.report_type == "text":
+                    # Because eval resets env we need to stop current updating to force another env reset post eval
+                    updating = False
+
                     rewards_tensor = torch.tensor(
                         self.episode_reward_list, dtype=torch.float
                     )
@@ -318,7 +323,7 @@ class TrainingGround:
 
             # self.episode_reward_list.append(episode_reward)
             # self.episode_length_list.append(episode_length)
-            # self.episode_loss_list.append(np.mean(loss_list))
+            self.episode_loss_list.append(np.mean(loss_list))
             # now_time = datetime.datetime.now()
             # self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
             # self.episode_time_list.append(now_time.time().strftime("%H:%M:%S"))

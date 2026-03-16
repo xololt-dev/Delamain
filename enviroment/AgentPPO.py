@@ -41,7 +41,6 @@ class AgentPPO():
         self.act_taken = 0
         self.n_updates = 0
         self.load_state = 'train'
-        self.save_dir = './training/saved_models/'
 
         # Replay Buffer
         self.buffer = []
