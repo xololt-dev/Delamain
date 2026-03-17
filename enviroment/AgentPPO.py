@@ -44,23 +44,13 @@ class AgentPPO():
 
         # Replay Buffer
         self.buffer = []
-            
         self.bufferLoss = TensorDictReplayBuffer(storage=LazyTensorStorage(250, device=self.device))
 
-        # Networks
         self.actor = model().to(device=self.device, non_blocking=True)
-        self.critic_base = model().to(device=self.device, non_blocking=True)
-        self.critic_head = nn.Linear(action_n, 1).to(device=self.device, non_blocking=True)
-        
         # Alias actor to policy_net so TrainingGround's eval mode toggle doesn't break
         self.policy_net = self.actor
 
-        # Optimizers (Combining Actor and Critic parameters)
-        self.optimizer = torch.optim.Adam([
-            {'params': self.actor.parameters(), 'lr': lr},
-            {'params': self.critic_base.parameters(), 'lr': lr},
-            {'params': self.critic_head.parameters(), 'lr': lr}
-        ], eps=1e-7)
+        self.optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr, eps=1e-7)
         self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(self.optimizer, lr_lambda=lambda epoch: lr_decay)
         self.loss_fn = nn.MSELoss()
 
@@ -96,7 +86,7 @@ class AgentPPO():
             state = state.unsqueeze(0)
 
         with torch.no_grad():
-            logits = self.actor(state)
+            logits, state_values = self.actor(state)
             dist = Categorical(logits=logits)
             
             # Deterministic evaluation if in eval mode, otherwise sample
@@ -111,7 +101,7 @@ class AgentPPO():
 
     def take_action_vec(self, state: torch.Tensor):
         with torch.no_grad():
-            logits = self.actor(state)
+            logits, state_values = self.actor(state)
             dist = Categorical(logits=logits)
             
             # Deterministic evaluation if in eval mode, otherwise sample
@@ -154,7 +144,7 @@ class AgentPPO():
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
             returns.insert(0, discounted_reward)
-            
+
         returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
         returns = (returns - returns.mean()) / (returns.std() + 1e-7)
 
@@ -163,13 +153,14 @@ class AgentPPO():
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
             # Evaluate current actions
-            logits = self.actor(states)
+            logits, state_values = self.actor(states)
             dist = Categorical(logits=logits)
             log_probs = dist.log_prob(actions)
             entropy = dist.entropy()
 
             # Critic evaluation
-            state_values = self.critic_head(self.critic_base(states)).squeeze()
+            # state_values = self.critic_head(self.critic_base(states)).squeeze()
+            state_values = state_values.squeeze()
 
             # Find ratios (pi_theta / pi_theta__old)
             ratios = torch.exp(log_probs - old_log_probs)
@@ -191,14 +182,15 @@ class AgentPPO():
             loss.backward()
             self.optimizer.step()
             final_loss = loss.detach()
+            if final_loss == None:
+                final_loss = loss.detach().view(1)
+            else:
+                final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
         self.buffer.clear() # Clear rollout buffer after update
+        final_loss = final_loss.mean()
 
-        # Save loss for TrainingGround compatibility
-        self.bufferLoss.add(
-            TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
-        )
         return None, final_loss
 
     def update_net_vec_whole(self, batch_size: int = None):
@@ -244,12 +236,13 @@ class AgentPPO():
 
         # Optimize policy for K epochs over the entire flattened batch
         for _ in range(self.K_epochs):
-            logits = self.actor(states)
+            logits, state_values = self.actor(states)
             dist = Categorical(logits=logits)
             log_probs = dist.log_prob(actions)
             entropy = dist.entropy()
 
-            state_values = self.critic_head(self.critic_base(states)).squeeze()
+            # state_values = self.critic_head(self.critic_base(states)).squeeze()
+            state_values = state_values.squeeze()
 
             ratios = torch.exp(log_probs - old_log_probs)
             advantages = returns - state_values.detach()
@@ -265,15 +258,15 @@ class AgentPPO():
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            final_loss = loss.detach()
+            if final_loss == None:
+                final_loss = loss.detach().view(1)
+            else:
+                final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
         self.buffer.clear() # Clear rollout buffer after update
+        final_loss = final_loss.mean()
 
-        # Log the loss
-        self.bufferLoss.add(
-            TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
-        )
         return None, final_loss
 
     def update_net_vec(self, batch_size: int = 64):
@@ -336,12 +329,13 @@ class AgentPPO():
                 mb_returns = returns[mb_indices]
 
                 # Run network on MINI-BATCH only
-                logits = self.actor(mb_states)
+                logits, state_values = self.actor(mb_states)
                 dist = Categorical(logits=logits)
                 log_probs = dist.log_prob(mb_actions)
                 entropy = dist.entropy()
 
-                state_values = self.critic_head(self.critic_base(mb_states)).squeeze()
+                # state_values = self.critic_head(self.critic_base(mb_states)).squeeze()
+                state_values = state_values.squeeze()
 
                 ratios = torch.exp(log_probs - mb_old_log_probs)
                 advantages = mb_returns - state_values.detach()
@@ -366,10 +360,8 @@ class AgentPPO():
         self.buffer.clear() # Clear rollout buffer after update
         final_loss = final_loss.mean()
 
-        # Log the loss (using the final mini-batch loss of the final epoch)
-        # self.bufferLoss.add(
-        #     TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
-        # )
+        return None, final_loss
+    
         return None, final_loss
 
     def save(self, save_dir: str, save_name: str):
@@ -379,8 +371,6 @@ class AgentPPO():
 
         torch.save({
             'actor_state_dict': self.actor.state_dict(),
-            'critic_base_state_dict': self.critic_base.state_dict(),
-            'critic_head_state_dict': self.critic_head.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
             'action_number': self.act_taken,
@@ -392,20 +382,14 @@ class AgentPPO():
         loaded_model = torch.load(save_path)
         
         self.actor.load_state_dict(loaded_model['actor_state_dict'])
-        self.critic_base.load_state_dict(loaded_model['critic_base_state_dict'])
-        self.critic_head.load_state_dict(loaded_model['critic_head_state_dict'])
         self.optimizer.load_state_dict(loaded_model['optimizer_state_dict'])
         if 'scheduler_state_dict' in loaded_model:
             self.scheduler.load_state_dict(loaded_model['scheduler_state_dict'])
 
         if self.load_state == 'eval' or self.load_state == 'kernel_vis':
             self.actor.eval()
-            self.critic_base.eval()
-            self.critic_head.eval()
         elif self.load_state in ['train', 'fine_tune']:
             self.actor.train()
-            self.critic_base.train()
-            self.critic_head.train()
             self.act_taken = loaded_model['action_number']
         
         print(f"PPO Model {model_name} from {load_dir} loaded")

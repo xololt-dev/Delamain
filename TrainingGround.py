@@ -17,7 +17,7 @@ from enviroment.SkipFrameVec import SkipFrameVec
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
-from alternative_models.Delamain_2_5 import Delamain_2_5
+from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 
 # set up matplotlib
 is_ipython = "inline" in matplotlib.get_backend()
@@ -155,6 +155,8 @@ class TrainingGround:
             case "Delamain_2_1":
                 return Delamain_2_1
             case "Delamain_2_5":
+                if (self.algorithm == Algorithms.PPO):
+                    return Delamain_2_5_PPO
                 return Delamain_2_5
             case _:
                 return Delamain
