@@ -131,6 +131,7 @@ class AgentPPO():
             return None, torch.tensor(0.0)
 
         if self.vec:
+            # return self.update_net_vec_whole(batch_size)
             return self.update_net_vec(batch_size)
         else:
             return self.update_net_scalar(batch_size)
@@ -192,7 +193,6 @@ class AgentPPO():
             final_loss = loss.detach()
 
         self.scheduler.step()
-        # self.buffer.empty() # Clear rollout buffer after update
         self.buffer.clear() # Clear rollout buffer after update
 
         # Save loss for TrainingGround compatibility
@@ -201,80 +201,81 @@ class AgentPPO():
         )
         return None, final_loss
 
-    # def update_net_vec(self, batch_size: int = None):
-    #     """
-    #     Updates the Actor and Critic networks using collected vectorized rollouts.
-    #     """
-    #     self.n_updates += 1
+    def update_net_vec_whole(self, batch_size: int = None):
+        """
+        Updates the Actor and Critic networks using collected vectorized rollouts.
+        """
+        self.n_updates += 1
         
-    #     if len(self.buffer) == 0:
-    #         return None, torch.tensor(0.0)
+        if len(self.buffer) == 0:
+            return None, torch.tensor(0.0)
             
-    #     # Stack into shape [T, n, ...] where T is steps per update and n is num envs
-    #     states = torch.stack([x[0] for x in self.buffer]).to(self.device)
-    #     actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
-    #     old_log_probs = torch.stack([x[2] for x in self.buffer]).to(self.device)
-    #     rewards = torch.stack([x[3] for x in self.buffer]).to(self.device)
-    #     terminateds = torch.stack([x[4] for x in self.buffer]).to(self.device)
+        # Stack into shape [T, n, ...] where T is steps per update and n is num envs
+        states = torch.stack([x[0] for x in self.buffer]).to(self.device)
+        actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
+        old_log_probs = torch.stack([x[2] for x in self.buffer]).to(self.device)
+        rewards = torch.stack([x[3] for x in self.buffer]).to(self.device)
+        terminateds = torch.stack([x[4] for x in self.buffer]).to(self.device)
 
-    #     T, n = rewards.shape[0], rewards.shape[1]
+        T, n = rewards.shape[0], rewards.shape[1]
 
-    #     # Calculate Monte Carlo estimates of rewards per-environment
-    #     returns = torch.zeros_like(rewards).to(self.device)
-    #     discounted_reward = torch.zeros(n, dtype=torch.float32, device=self.device)
+        # Calculate Monte Carlo estimates of rewards per-environment
+        returns = torch.zeros_like(rewards).to(self.device)
+        discounted_reward = torch.zeros(n, dtype=torch.float32, device=self.device)
         
-    #     for t in reversed(range(T)):
-    #         # ~terminateds[t] is True (1.0) if the env didn't crash, False (0.0) if it did.
-    #         # This cleanly severs the reward connection only for environments that ended.
-    #         discounted_reward = discounted_reward * (~terminateds[t]).float()
-    #         discounted_reward = rewards[t] + (self.gamma * discounted_reward)
-    #         returns[t] = discounted_reward
+        for t in reversed(range(T)):
+            # ~terminateds[t] is True (1.0) if the env didn't crash, False (0.0) if it did.
+            # This cleanly severs the reward connection only for environments that ended.
+            discounted_reward = discounted_reward * (~terminateds[t]).float()
+            discounted_reward = rewards[t] + (self.gamma * discounted_reward)
+            returns[t] = discounted_reward
             
-    #     # Flatten the Time (T) and Environment (n) dimensions into a single batch dimension
-    #     # [T, n, ...] becomes [T * n, ...]
-    #     states = states.view(T * n, *states.shape[2:])
-    #     actions = actions.view(T * n)
-    #     old_log_probs = old_log_probs.view(T * n)
-    #     returns = returns.view(T * n)
+        # Flatten the Time (T) and Environment (n) dimensions into a single batch dimension
+        # [T, n, ...] becomes [T * n, ...]
+        states = states.view(T * n, *states.shape[2:])
+        actions = actions.view(T * n)
+        old_log_probs = old_log_probs.view(T * n)
+        returns = returns.view(T * n)
         
-    #     # Normalize returns across all environments and timesteps
-    #     returns = (returns - returns.mean()) / (returns.std() + 1e-7)
+        # Normalize returns across all environments and timesteps
+        returns = (returns - returns.mean()) / (returns.std() + 1e-7)
 
-    #     final_loss = None
+        final_loss = None
 
-    #     # Optimize policy for K epochs over the entire flattened batch
-    #     for _ in range(self.K_epochs):
-    #         logits = self.actor(states)
-    #         dist = Categorical(logits=logits)
-    #         log_probs = dist.log_prob(actions)
-    #         entropy = dist.entropy()
+        # Optimize policy for K epochs over the entire flattened batch
+        for _ in range(self.K_epochs):
+            logits = self.actor(states)
+            dist = Categorical(logits=logits)
+            log_probs = dist.log_prob(actions)
+            entropy = dist.entropy()
 
-    #         state_values = self.critic_head(self.critic_base(states)).squeeze()
+            state_values = self.critic_head(self.critic_base(states)).squeeze()
 
-    #         ratios = torch.exp(log_probs - old_log_probs)
-    #         advantages = returns - state_values.detach()
+            ratios = torch.exp(log_probs - old_log_probs)
+            advantages = returns - state_values.detach()
             
-    #         surr1 = ratios * advantages
-    #         surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
 
-    #         actor_loss = -torch.min(surr1, surr2).mean()
-    #         critic_loss = self.loss_fn(state_values, returns)
+            actor_loss = -torch.min(surr1, surr2).mean()
+            critic_loss = self.loss_fn(state_values, returns)
             
-    #         loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+            loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
 
-    #         self.optimizer.zero_grad()
-    #         loss.backward()
-    #         self.optimizer.step()
-    #         final_loss = loss.detach()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            final_loss = loss.detach()
 
-    #     self.scheduler.step()
-    #     self.buffer.clear() # Clear rollout buffer after update
+        self.scheduler.step()
+        self.buffer.clear() # Clear rollout buffer after update
 
-    #     # Log the loss
-    #     self.bufferLoss.add(
-    #         TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
-    #     )
-    #     return None, final_loss
+        # Log the loss
+        self.bufferLoss.add(
+            TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
+        )
+        return None, final_loss
+
     def update_net_vec(self, batch_size: int = 64):
         """
         Updates the Actor and Critic networks using collected vectorized rollouts.
@@ -314,7 +315,7 @@ class AgentPPO():
 
         final_loss = None
         total_batch_size = T * n
-        
+
         # Fallback if batch_size isn't passed or is somehow larger than the rollout
         if batch_size is None or batch_size > total_batch_size:
             batch_size = 64 
@@ -356,15 +357,19 @@ class AgentPPO():
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                final_loss = loss.detach()
+                if final_loss == None:
+                    final_loss = loss.detach().view(1)
+                else:
+                    final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
         self.buffer.clear() # Clear rollout buffer after update
+        final_loss = final_loss.mean()
 
         # Log the loss (using the final mini-batch loss of the final epoch)
-        self.bufferLoss.add(
-            TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
-        )
+        # self.bufferLoss.add(
+        #     TensorDict({"loss": final_loss.clone().to(device=self.device, non_blocking=True)}, batch_size=[])
+        # )
         return None, final_loss
 
     def save(self, save_dir: str, save_name: str):

@@ -10,6 +10,7 @@ env:
   envs_num: 6
   mode: 'train'
 train:
+  algorithm: "PPO"
   batch_n: 64
   play_n_episodes: 25000
   gamma: 0.95

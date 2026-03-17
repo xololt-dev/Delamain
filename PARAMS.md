@@ -1,4 +1,5 @@
 # Parameters file
+
 Parameters file used for setting up the eval / training enviroment is written in yaml format.
 
 ## Expected structure
@@ -14,11 +15,19 @@ Parameters file used for setting up the eval / training enviroment is written in
     - boolean
   - skip_frames
     - int
+  - vec
+    - boolean
+  - envs_num
+    - int
   - mode
     - string
     - options: 'train', 'eval', None
     - default: 'train'
 - train:
+  - algorithm
+    - string
+    - options: 'DQN', 'PPO'
+    - default: 'DQN'
   - batch_n
     - int
   - play_n_episodes

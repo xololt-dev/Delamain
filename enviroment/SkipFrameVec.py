@@ -1,7 +1,9 @@
 import numpy as np
 import gymnasium as gym
-from typing import Any
+from typing import Any, TypeVar
 
+ActType = TypeVar("ActType")
+ObsType = TypeVar("ObsType")
 
 class SkipFrameVec(gym.vector.VectorWrapper):
     """
@@ -13,15 +15,14 @@ class SkipFrameVec(gym.vector.VectorWrapper):
         skip (int) : The number of frames to skip.
     """
 
-    def __init__(self, env: gym.vector.AsyncVectorEnv | gym.vector.SyncVectorEnv, skip: int):
+    def __init__(self, env: gym.vector.VectorEnv, skip: int):
         super().__init__(env)
         self._skip = skip
         self.frames = np.zeros((env.observation_space.shape[0], 96, 96, skip * 3), dtype=np.uint8)
         self.rewards = np.zeros((env.observation_space.shape[0], skip), dtype=np.float32)
         self._negative_in_row = 0
-        print(env.observation_space)
 
-    def step(self, actions):
+    def step(self, actions: ActType):
         # Executes the action for the specified number of frames, accumulating rewards.
         for _ in range(self._skip):
             self.frames = np.roll(self.frames, -3, axis=3)
@@ -42,7 +43,7 @@ class SkipFrameVec(gym.vector.VectorWrapper):
             info,
         )
 
-    def reset(self, seed: int | list[int] | None = None, options: dict[str, Any] | None = None):
+    def reset(self, seed: int | list[int] | None = None, options: dict[str, Any] | None = None) -> tuple[ObsType, dict[str, Any]]:
         self.rewards.fill(0)
         self.frames.fill(0)
         # self._negative_in_row = 0

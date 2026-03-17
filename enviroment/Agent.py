@@ -26,6 +26,7 @@ class Agent:
         buffer_size: int = 300000,
         skip_frames: int = 4,
         play_n_episodes: int = 3000,
+        **kwargs # Catch-all
     ):
         self.gamma = gamma
         self.epsilon = epsilon
