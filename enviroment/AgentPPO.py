@@ -9,7 +9,8 @@ from torch.distributions import Categorical
 from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorStorage
 from tensordict import TensorDict
 
-class AgentPPO():
+
+class AgentPPO:
     SAVE_DIR = "training/saved_models/"
     LOG_DIR = "training/logs/"
 
@@ -21,37 +22,40 @@ class AgentPPO():
         gamma: float = 0.99,
         lr: float = 0.0003,
         lr_decay: float = 1.0,
-        buffer_size: int = 4096, # Typically larger for PPO rollouts
-        **kwargs # Catch-all for DQN kwargs passed by TrainingGround that PPO ignores
+        buffer_size: int = 4096,  # Typically larger for PPO rollouts
+        **kwargs,  # Catch-all for DQN kwargs passed by TrainingGround that PPO ignores
     ):
         self.gamma = gamma
         self.action_n = action_n
         self.state_space_shape = state_space_shape
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = kwargs.get(
+            "device", "cuda" if torch.cuda.is_available() else "cpu"
+        )
         self.vec = kwargs.get("vec", False)
-        
+
         # PPO specific hyperparameters
         self.eps_clip = 0.2
         self.K_epochs = 4
-        self.is_ppo = True # Flag for TrainingGround logic
+        self.is_ppo = True  # Flag for TrainingGround logic
 
         # Dummy variables to prevent TrainingGround logging/eval from crashing
         self.epsilon = 0.0
         self.epsilon_end = 0.0
         self.act_taken = 0
         self.n_updates = 0
-        self.load_state = 'train'
+        self.load_state = "train"
 
         # Replay Buffer
         self.buffer = []
-        self.bufferLoss = TensorDictReplayBuffer(storage=LazyTensorStorage(250, device=self.device))
 
         self.actor = model().to(device=self.device, non_blocking=True)
         # Alias actor to policy_net so TrainingGround's eval mode toggle doesn't break
         self.policy_net = self.actor
 
         self.optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr, eps=1e-7)
-        self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(self.optimizer, lr_lambda=lambda epoch: lr_decay)
+        self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(
+            self.optimizer, lr_lambda=lambda epoch: lr_decay
+        )
         self.loss_fn = nn.MSELoss()
 
     def store(self, state, action, reward, new_state, terminated, log_prob):
@@ -61,13 +65,15 @@ class AgentPPO():
         else:
             state_t = state.clone().detach().to(dtype=torch.float32)
 
-        self.buffer.append((
-            state_t,
-            torch.as_tensor(action, dtype=torch.long),
-            torch.as_tensor(log_prob, dtype=torch.float32),
-            torch.as_tensor(reward, dtype=torch.float32),
-            torch.as_tensor(terminated, dtype=torch.bool)
-        ))
+        self.buffer.append(
+            (
+                state_t,
+                torch.as_tensor(action, dtype=torch.long),
+                torch.as_tensor(log_prob, dtype=torch.float32),
+                torch.as_tensor(reward, dtype=torch.float32),
+                torch.as_tensor(terminated, dtype=torch.bool),
+            )
+        )
 
     def take_action(self, state: Union[np.ndarray, torch.Tensor]):
         """Chooses an action based on the actor's probability distribution."""
@@ -88,9 +94,9 @@ class AgentPPO():
         with torch.no_grad():
             logits, state_values = self.actor(state)
             dist = Categorical(logits=logits)
-            
+
             # Deterministic evaluation if in eval mode, otherwise sample
-            if self.load_state == 'eval':
+            if self.load_state == "eval":
                 action = torch.argmax(logits, dim=1)
             else:
                 action = dist.sample()
@@ -103,9 +109,9 @@ class AgentPPO():
         with torch.no_grad():
             logits, state_values = self.actor(state)
             dist = Categorical(logits=logits)
-            
+
             # Deterministic evaluation if in eval mode, otherwise sample
-            if self.load_state == 'eval':
+            if self.load_state == "eval":
                 action = torch.argmax(logits, dim=1)
             else:
                 action = dist.sample()
@@ -116,7 +122,7 @@ class AgentPPO():
 
     def update_net(self, batch_size: int = None):
         self.n_updates += 1
-        
+
         if len(self.buffer) == 0:
             return None, torch.tensor(0.0)
 
@@ -128,7 +134,7 @@ class AgentPPO():
 
     def update_net_scalar(self, batch_size: int = None):
         """Updates the Actor and Critic networks using the collected sequential rollout."""
-        
+
         # Unpack the sequential buffer
         states = torch.stack([x[0] for x in self.buffer]).to(self.device)
         actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
@@ -168,12 +174,14 @@ class AgentPPO():
             # Find Surrogate Loss
             advantages = returns - state_values.detach()
             surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            surr2 = (
+                torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            )
 
             # Compute losses
             actor_loss = -torch.min(surr1, surr2).mean()
             critic_loss = self.loss_fn(state_values, returns)
-            
+
             # Total Loss (includes entropy bonus for exploration)
             loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
 
@@ -188,7 +196,7 @@ class AgentPPO():
                 final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
-        self.buffer.clear() # Clear rollout buffer after update
+        self.buffer.clear()  # Clear rollout buffer after update
         final_loss = final_loss.mean()
 
         return None, final_loss
@@ -198,10 +206,10 @@ class AgentPPO():
         Updates the Actor and Critic networks using collected vectorized rollouts.
         """
         self.n_updates += 1
-        
+
         if len(self.buffer) == 0:
             return None, torch.tensor(0.0)
-            
+
         # Stack into shape [T, n, ...] where T is steps per update and n is num envs
         states = torch.stack([x[0] for x in self.buffer]).to(self.device)
         actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
@@ -214,21 +222,21 @@ class AgentPPO():
         # Calculate Monte Carlo estimates of rewards per-environment
         returns = torch.zeros_like(rewards).to(self.device)
         discounted_reward = torch.zeros(n, dtype=torch.float32, device=self.device)
-        
+
         for t in reversed(range(T)):
             # ~terminateds[t] is True (1.0) if the env didn't crash, False (0.0) if it did.
             # This cleanly severs the reward connection only for environments that ended.
             discounted_reward = discounted_reward * (~terminateds[t]).float()
             discounted_reward = rewards[t] + (self.gamma * discounted_reward)
             returns[t] = discounted_reward
-            
+
         # Flatten the Time (T) and Environment (n) dimensions into a single batch dimension
         # [T, n, ...] becomes [T * n, ...]
         states = states.view(T * n, *states.shape[2:])
         actions = actions.view(T * n)
         old_log_probs = old_log_probs.view(T * n)
         returns = returns.view(T * n)
-        
+
         # Normalize returns across all environments and timesteps
         returns = (returns - returns.mean()) / (returns.std() + 1e-7)
 
@@ -246,13 +254,15 @@ class AgentPPO():
 
             ratios = torch.exp(log_probs - old_log_probs)
             advantages = returns - state_values.detach()
-            
+
             surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            surr2 = (
+                torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            )
 
             actor_loss = -torch.min(surr1, surr2).mean()
             critic_loss = self.loss_fn(state_values, returns)
-            
+
             loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
 
             self.optimizer.zero_grad()
@@ -264,7 +274,7 @@ class AgentPPO():
                 final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
-        self.buffer.clear() # Clear rollout buffer after update
+        self.buffer.clear()  # Clear rollout buffer after update
         final_loss = final_loss.mean()
 
         return None, final_loss
@@ -274,10 +284,10 @@ class AgentPPO():
         Updates the Actor and Critic networks using collected vectorized rollouts.
         """
         self.n_updates += 1
-        
+
         if len(self.buffer) == 0:
             return None, torch.tensor(0.0)
-            
+
         # Stack into shape [T, n, ...] where T is steps per update and n is num envs
         states = torch.stack([x[0] for x in self.buffer]).to(self.device)
         actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
@@ -290,19 +300,19 @@ class AgentPPO():
         # Calculate Monte Carlo estimates of rewards per-environment
         returns = torch.zeros_like(rewards).to(self.device)
         discounted_reward = torch.zeros(n, dtype=torch.float32, device=self.device)
-        
+
         for t in reversed(range(T)):
             # ~terminateds[t] is True (1.0) if the env didn't crash, False (0.0) if it did.
             discounted_reward = discounted_reward * (~terminateds[t]).float()
             discounted_reward = rewards[t] + (self.gamma * discounted_reward)
             returns[t] = discounted_reward
-            
+
         # Flatten the Time (T) and Environment (n) dimensions into a single batch dimension
         states = states.view(T * n, *states.shape[2:])
         actions = actions.view(T * n)
         old_log_probs = old_log_probs.view(T * n)
         returns = returns.view(T * n)
-        
+
         # Normalize returns across all environments and timesteps
         returns = (returns - returns.mean()) / (returns.std() + 1e-7)
 
@@ -311,17 +321,17 @@ class AgentPPO():
 
         # Fallback if batch_size isn't passed or is somehow larger than the rollout
         if batch_size is None or batch_size > total_batch_size:
-            batch_size = 64 
+            batch_size = 64
 
         # Optimize policy for K epochs over the flattened batch using MINI-BATCHES
         for _ in range(self.K_epochs):
             # Shuffle indices for this epoch
             indices = torch.randperm(total_batch_size).to(self.device)
-            
+
             for start_idx in range(0, total_batch_size, batch_size):
                 end_idx = start_idx + batch_size
                 mb_indices = indices[start_idx:end_idx]
-                
+
                 # Extract mini-batch
                 mb_states = states[mb_indices]
                 mb_actions = actions[mb_indices]
@@ -339,13 +349,16 @@ class AgentPPO():
 
                 ratios = torch.exp(log_probs - mb_old_log_probs)
                 advantages = mb_returns - state_values.detach()
-                
+
                 surr1 = ratios * advantages
-                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+                surr2 = (
+                    torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip)
+                    * advantages
+                )
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = self.loss_fn(state_values, mb_returns)
-                
+
                 loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
 
                 self.optimizer.zero_grad()
@@ -357,7 +370,7 @@ class AgentPPO():
                     final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
         self.scheduler.step()
-        self.buffer.clear() # Clear rollout buffer after update
+        self.buffer.clear()  # Clear rollout buffer after update
         final_loss = final_loss.mean()
 
         return None, final_loss
@@ -369,40 +382,60 @@ class AgentPPO():
             os.makedirs(save_dir)
         save_path = os.path.join(save_dir, save_name + f"_PPO_{self.act_taken}.pt")
 
-        torch.save({
-            'actor_state_dict': self.actor.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'action_number': self.act_taken,
-        }, save_path)
+        torch.save(
+            {
+                "actor_state_dict": self.actor.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "scheduler_state_dict": self.scheduler.state_dict(),
+                "action_number": self.act_taken,
+            },
+            save_path,
+        )
         print(f"PPO Model saved to {save_path} at step {self.act_taken}")
 
     def load(self, load_dir: str, model_name: str):
         save_path = os.path.join(load_dir, model_name)
         loaded_model = torch.load(save_path)
-        
-        self.actor.load_state_dict(loaded_model['actor_state_dict'])
-        self.optimizer.load_state_dict(loaded_model['optimizer_state_dict'])
-        if 'scheduler_state_dict' in loaded_model:
-            self.scheduler.load_state_dict(loaded_model['scheduler_state_dict'])
 
-        if self.load_state == 'eval' or self.load_state == 'kernel_vis':
+        self.actor.load_state_dict(loaded_model["actor_state_dict"])
+        self.optimizer.load_state_dict(loaded_model["optimizer_state_dict"])
+        if "scheduler_state_dict" in loaded_model:
+            self.scheduler.load_state_dict(loaded_model["scheduler_state_dict"])
+
+        if self.load_state == "eval" or self.load_state == "kernel_vis":
             self.actor.eval()
-        elif self.load_state in ['train', 'fine_tune']:
+        elif self.load_state in ["train", "fine_tune"]:
             self.actor.train()
-            self.act_taken = loaded_model['action_number']
-        
+            self.act_taken = loaded_model["action_number"]
+
         print(f"PPO Model {model_name} from {load_dir} loaded")
 
-    def write_log(self, date_list, time_list, reward_list, length_list, loss_list, epsilon_list, lr_list, log_filename='default_log.csv'):
+    def write_log(
+        self,
+        date_list,
+        time_list,
+        reward_list,
+        length_list,
+        loss_list,
+        epsilon_list,
+        lr_list,
+        log_filename="default_log.csv",
+    ):
         # Matches original Agent exactly
         if not os.path.exists(self.LOG_DIR):
             os.makedirs(self.LOG_DIR)
-        rows = [['date']+date_list, ['time']+time_list, ['reward']+reward_list,
-                ['length']+length_list, ['loss']+loss_list, ['epsilon']+epsilon_list, ['lr']+lr_list]
-        with open(self.LOG_DIR+log_filename, 'w') as csvfile:
+        rows = [
+            ["date"] + date_list,
+            ["time"] + time_list,
+            ["reward"] + reward_list,
+            ["length"] + length_list,
+            ["loss"] + loss_list,
+            ["epsilon"] + epsilon_list,
+            ["lr"] + lr_list,
+        ]
+        with open(self.LOG_DIR + log_filename, "w") as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerows(rows)
-    
+
     def get_lr(self):
         return self.scheduler.get_last_lr()[0]

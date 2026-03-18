@@ -26,7 +26,7 @@ class Agent:
         buffer_size: int = 300000,
         skip_frames: int = 4,
         play_n_episodes: int = 3000,
-        **kwargs # Catch-all
+        **kwargs,  # Catch-all
     ):
         self.gamma = gamma
         self.epsilon = epsilon
@@ -46,11 +46,6 @@ class Agent:
             self.buffer = TensorDictReplayBuffer(
                 storage=LazyMemmapStorage(buffer_size, device=self.device)
             )
-        self.bufferLoss = TensorDictReplayBuffer(
-            storage=LazyTensorStorage(250, device=self.device)
-        )
-        # if self.device == 'cuda':
-        #     self.buffer.append_transform(lambda x: x.to(self.device))
 
         self.policy_net = model().to(device=self.device, non_blocking=True)
         self.policy_net.compile()
@@ -203,20 +198,8 @@ class Agent:
         # torch.nn.utils.clip_grad_value_(self.target_net.parameters(), 1.0)
         self.optimizer.step()
         self.scheduler.step()
-        # loss = loss.detach().clone().cpu().item()
+        loss = loss.detach().cpu().item()
 
-        self.bufferLoss.add(
-            TensorDict(
-                {
-                    "loss": loss.detach()
-                    .clone()
-                    .to(device=self.device, non_blocking=True),
-                },
-                batch_size=[],
-            )
-        )
-
-        # loss = loss.item()
         return td_est, loss
 
     def save(self, save_dir: str, save_name: str):

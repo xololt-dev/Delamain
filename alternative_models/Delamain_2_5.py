@@ -72,11 +72,12 @@ class Delamain_2_5_PPO(DelamainBase):
     def prev_frames_needed(self) -> int:
         return 4
 
+
 class Delamain_2_5_PPO_Head(Delamain_2_5):
     def __init__(self):
         super().__init__()
-        self.fc3 = nn.Linear(32 * 21 * 21, 256, dtype=torch.float32)
-        self.fc4 = nn.Linear(256, 1, dtype=torch.float32)
+        del self.fc1
+        del self.fc2
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Permute the dimensions to have channels first (batch, channels, height, width)
@@ -100,6 +101,7 @@ class Delamain_2_5_PPO_Head(Delamain_2_5):
     def prev_frames_needed(self) -> int:
         return 4
 
+
 class Delamain_2_5_Actor(DelamainBase):
     def __init__(self):
         super().__init__()
@@ -111,6 +113,7 @@ class Delamain_2_5_Actor(DelamainBase):
         x = self.fc4(x)
 
         return x
+
 
 class Delamain_2_5_Critic(DelamainBase):
     def __init__(self):
