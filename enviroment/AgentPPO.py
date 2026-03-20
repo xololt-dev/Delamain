@@ -418,6 +418,7 @@ class AgentPPO:
         loss_list,
         epsilon_list,
         lr_list,
+        fuel_efficiency_list: list | None = None,
         log_filename="default_log.csv",
     ):
         # Matches original Agent exactly
@@ -432,6 +433,8 @@ class AgentPPO:
             ["epsilon"] + epsilon_list,
             ["lr"] + lr_list,
         ]
+        if fuel_efficiency_list is not None:
+            rows.append(["fuel_efficiency"] + fuel_efficiency_list)
         with open(self.LOG_DIR + log_filename, "w") as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerows(rows)

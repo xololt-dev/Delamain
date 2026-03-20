@@ -31,6 +31,7 @@ class TrainingGround:
     VIDEO_DIR = "training/video"
     MODELS_DIR = "training/saved_models"
     PARAMS_FILE = "training_params.yaml"
+    FUEL_PENALTY_ARR = [1.5, 2.0]
 
     def __init__(self):
         yamlValues = None
@@ -50,6 +51,7 @@ class TrainingGround:
         self.episode_actions_in_row_list = []
         self.episode_date_list = []
         self.episode_time_list = []
+        self.episode_fuel_efficiency_list = []
         self.episode = 0
         self.timestep_n = 0
 
@@ -214,6 +216,7 @@ class TrainingGround:
             loss_list = []
             prev_action = None
             actions_in_row = [0]
+            actions = np.zeros(5, dtype=np.uint8)
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.get_lr())
 
@@ -231,6 +234,7 @@ class TrainingGround:
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 episode_reward += reward
 
+                actions[action] += 1
                 if prev_action == action:
                     actions_in_row[-1] += 1
                 else:
@@ -318,29 +322,35 @@ class TrainingGround:
             self.episode_loss_list.append(np.mean(loss_list))
             self.episode_actions_in_row_list.append(np.mean(actions_in_row))
             print("actions_in_row:", np.mean(actions_in_row))
-            
+
+            efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
+            penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
+            fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
+
+            self.episode_fuel_efficiency_list.append(fuel_efficiency)
+            print(f"Fuel efficiency: {fuel_efficiency:.3f}")
+
             now_time = datetime.datetime.now()
             self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
             self.episode_time_list.append(now_time.time().strftime("%H:%M:%S"))
-            loss_list = []
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(
                     self.episode, self.episode_reward_list, self.timestep_n
                 )
 
-            if self.episode % self.when2log == 0:
-                self.driver.write_log(
-                    self.episode_date_list,
-                    self.episode_time_list,
-                    self.episode_reward_list,
-                    self.episode_length_list,
-                    self.episode_loss_list,
-                    self.episode_epsilon_list,
-                    self.episode_lr_list,
-                    log_filename=f"{self.class_name}_log_test.csv",
-                )
-
+                if self.episode % self.when2log == 0:
+                    self.driver.write_log(
+                        self.episode_date_list,
+                        self.episode_time_list,
+                        self.episode_reward_list,
+                        self.episode_length_list,
+                        self.episode_loss_list,
+                        self.episode_epsilon_list,
+                        self.episode_lr_list,
+                        self.episode_fuel_efficiency_list,
+                        log_filename=f"{self.class_name}_log_test.csv",
+                    )
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
         self.env.close()
@@ -355,11 +365,13 @@ class TrainingGround:
         current_ep_rewards = np.zeros(self.envs_num)
         current_ep_lengths = np.zeros(self.envs_num)
         last_loss = 0.0
+        actions = np.zeros((self.envs_num, 5), dtype=np.uint8)
 
         while self.episode <= self.play_n_episodes:
             self.episode += 1
             current_ep_rewards.fill(0)
             current_ep_lengths.fill(0)
+            actions.fill(0)
             updating = True
 
             while updating:
@@ -373,6 +385,9 @@ class TrainingGround:
                     log_prob = None
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
+                rows = np.arange(len(action))
+                np.add.at(actions, (rows, action), 1)
+
                 current_ep_rewards += reward
                 current_ep_lengths += 1
 
@@ -401,7 +416,17 @@ class TrainingGround:
                         self.episode_loss_list.append(last_loss)
                         self.episode_epsilon_list.append(self.driver.epsilon)
                         self.episode_lr_list.append(self.driver.get_lr())
-                        
+
+                        efficiency_bonus = 1.0 + np.sum(actions[i, :3]) * 0.01
+                        penalty = np.dot(actions[i, 3:], self.FUEL_PENALTY_ARR)
+                        fuel_efficiency = (current_ep_rewards[i] * efficiency_bonus) / (
+                            penalty + 1.0
+                        )
+                        actions[i].fill(0)
+
+                        self.episode_fuel_efficiency_list.append(fuel_efficiency)
+                        print(f"Fuel efficiency: {fuel_efficiency:.3f}")
+
                         now_time = datetime.datetime.now()
                         self.episode_date_list.append(
                             now_time.date().strftime("%Y-%m-%d")
@@ -489,6 +514,7 @@ class TrainingGround:
                     self.episode_loss_list,
                     self.episode_epsilon_list,
                     self.episode_lr_list,
+                    self.episode_fuel_efficiency_list,
                     log_filename=f"{self.class_name}_log_test.csv",
                 )
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
@@ -635,6 +661,7 @@ class TrainingGround:
                     self.episode_loss_list,
                     self.episode_epsilon_list,
                     self.episode_lr_list,
+                    self.episode_fuel_efficiency_list,
                     log_filename=f"{self.class_name}_log_test.csv",
                 )
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
@@ -677,7 +704,6 @@ class TrainingGround:
             action = None
             prev_action = None
             actions_in_row = [0]
-            
 
             while updating:
                 episode_length += 1
@@ -688,6 +714,7 @@ class TrainingGround:
                 else:  # DQN returns just action
                     action = action_out
                     log_prob = None
+
                 actions[action] += 1
                 if prev_action == action:
                     actions_in_row[-1] += 1
@@ -708,7 +735,13 @@ class TrainingGround:
             print(f"    info {info}")
             print(f"    actions {actions}")
             print("actions_in_row:", np.mean(actions_in_row))
-            
+
+            efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
+            penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
+            fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
+
+            self.episode_fuel_efficiency_list.append(fuel_efficiency)
+            print(f"Fuel efficiency: {fuel_efficiency:.3f}")
 
     def eval_vec(self):
         if not self.eval_tracks:
@@ -769,6 +802,13 @@ class TrainingGround:
             print(f"    episode length {episode_length}")
             print(f"    info {info}")
             print(f"    actions {actions}")
+
+            efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
+            penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
+            fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
+
+            self.episode_fuel_efficiency_list.append(fuel_efficiency)
+            print(f"Fuel efficiency: {fuel_efficiency:.3f}")
 
         # self.env.close()
 
