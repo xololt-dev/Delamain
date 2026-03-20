@@ -9,6 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import time
 
+from enviroment.AgentDDQN import AgentDDQN
 from enviroment.Agent import Agent
 from enviroment.AgentPPO import AgentPPO
 from enviroment.Algorithms import Algorithms
@@ -171,12 +172,16 @@ class TrainingGround:
             case _:
                 return Delamain
 
-    def parse_algorithm(self, algorithm: Algorithms | None) -> type[Agent | AgentPPO]:
+    def parse_algorithm(
+        self, algorithm: Algorithms | None
+    ) -> type[Agent | AgentPPO | AgentDDQN]:
         match algorithm:
             case Algorithms.DQN:
                 return Agent
             case Algorithms.PPO:
                 return AgentPPO
+            case Algorithms.DDQN:
+                return AgentDDQN
             case _:
                 return Agent
 
@@ -241,7 +246,7 @@ class TrainingGround:
                 updating = not (terminated or truncated)
 
                 if self.timestep_n % self.when2sync == 0:
-                    if self.algorithm == Algorithms.DQN:
+                    if self.algorithm != Algorithms.PPO:
                         upd_net_param = self.driver.target_net.state_dict()
                         self.driver.policy_net.load_state_dict(upd_net_param)
 
@@ -396,12 +401,10 @@ class TrainingGround:
                         current_ep_rewards[i] = 0
                         current_ep_lengths[i] = 0
 
-                # --- MODIFICATION 2: Only sync if using DQN (PPO doesn't use target_net) ---
                 if self.timestep_n % self.when2sync == 0:
-                    if self.algorithm == Algorithms.DQN:
+                    if self.algorithm != Algorithms.PPO:
                         upd_net_param = self.driver.target_net.state_dict()
                         self.driver.policy_net.load_state_dict(upd_net_param)
-                # --- END MODIFICATION 2 ---
 
                 if self.timestep_n % self.when2save == 0:
                     self.driver.save(self.driver.SAVE_DIR, self.class_name)

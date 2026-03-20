@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from .DelamainBase import DelamainBase
 
+
 class Delamain(DelamainBase):
     def __init__(self):
         super().__init__()
@@ -18,10 +19,12 @@ class Delamain(DelamainBase):
     def forward(self, x):
         # Permute the dimensions to have channels first (batch, channels, height, width)
         x = x.permute(0, 3, 1, 2)
+        x = x.float() / 255.0
+
         x = self.pool(F.relu(self.conv1(x)))
         x = F.relu(self.conv2(x))
         x = self.pool(F.relu(self.conv3(x)))
-        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = torch.flatten(x, 1)  # flatten all dimensions except batch
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)

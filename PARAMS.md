@@ -26,7 +26,7 @@ Parameters file used for setting up the eval / training enviroment is written in
 - train:
   - algorithm
     - string
-    - options: 'DQN', 'PPO'
+    - options: 'DQN', 'DDQN', 'PPO'
     - default: 'DQN'
   - batch_n
     - int

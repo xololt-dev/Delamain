@@ -8,7 +8,7 @@ from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorSt
 from tensordict import TensorDict
 
 
-class Agent:
+class AgentDDQN:
     SAVE_DIR = "training/saved_models/"
     LOG_DIR = "training/logs/"
 
@@ -28,6 +28,7 @@ class Agent:
         play_n_episodes: int = 3000,
         **kwargs,  # Catch-all
     ):
+        print("agent DDQN!")
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_end = epsilon_end
@@ -188,18 +189,19 @@ class Agent:
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
         with torch.no_grad():
+            next_actions = torch.argmax(self.target_net(new_states), axis=1)
             tar_action_values = self.policy_net(new_states)
         td_tar = (
             rewards
-            + (1 - terminateds.float()) * self.gamma * tar_action_values.max(1)[0]
+            + (1 - terminateds.float())
+            * self.gamma
+            * tar_action_values[np.arange(batch_size), next_actions]
         )
 
         loss = self.loss_fn(td_est, td_tar)
         self.optimizer.zero_grad()
         loss.backward()
-        # torch.nn.utils.clip_grad_value_(self.target_net.parameters(), 1.0)
         self.optimizer.step()
-        self.scheduler.step()
         loss = loss.detach().cpu().item()
 
         return td_est, loss
@@ -293,6 +295,7 @@ class Agent:
         loss_list: list,
         epsilon_list: list,
         lr_list: list,
+        fuel_efficiency_list: list | None = None,
         log_filename: str = "default_log.csv",
     ):
         """
@@ -314,6 +317,8 @@ class Agent:
 
             lr_list (list) : A list of learning rate values recorded during training.
 
+            fuel_efficiency_list (list) : A list of fuel efficiency values recorded during training.
+
             log_filename (str) : The name of the CSV file to save the logs.
         """
         if not os.path.exists(self.LOG_DIR):
@@ -327,6 +332,8 @@ class Agent:
             ["epsilon"] + epsilon_list,
             ["lr"] + lr_list,
         ]
+        if fuel_efficiency_list is not None:
+            rows.append(["fuel_efficiency"] + fuel_efficiency_list)
         with open(self.LOG_DIR + log_filename, "w") as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerows(rows)

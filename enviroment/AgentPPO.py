@@ -6,8 +6,6 @@ import csv
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
-from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorStorage
-from tensordict import TensorDict
 
 
 class AgentPPO:
@@ -49,6 +47,7 @@ class AgentPPO:
         self.buffer = []
 
         self.actor = model().to(device=self.device, non_blocking=True)
+        self.actor.compile()
         # Alias actor to policy_net so TrainingGround's eval mode toggle doesn't break
         self.policy_net = self.actor
 
