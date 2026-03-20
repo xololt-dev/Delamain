@@ -188,7 +188,6 @@ class AgentPPO:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            final_loss = loss.detach()
             if final_loss == None:
                 final_loss = loss.detach().view(1)
             else:
@@ -196,7 +195,7 @@ class AgentPPO:
 
         self.scheduler.step()
         self.buffer.clear()  # Clear rollout buffer after update
-        final_loss = final_loss.mean()
+        final_loss = final_loss.mean().cpu()
 
         return None, final_loss
 
@@ -274,7 +273,7 @@ class AgentPPO:
 
         self.scheduler.step()
         self.buffer.clear()  # Clear rollout buffer after update
-        final_loss = final_loss.mean()
+        final_loss = final_loss.mean().cpu()
 
         return None, final_loss
 
@@ -370,7 +369,7 @@ class AgentPPO:
 
         self.scheduler.step()
         self.buffer.clear()  # Clear rollout buffer after update
-        final_loss = final_loss.mean()
+        final_loss = final_loss.mean().cpu()
 
         return None, final_loss
     
