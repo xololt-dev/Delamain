@@ -6,7 +6,11 @@ model:
 env:
   random_colors: False
   skip_frames: 4
-  device: "CPU"
+  vec: False
+  envs_num: 4
+  mode: "train"
+  device:
+  # device: "CPU"
 train:
   algorithm: "PPO"
   batch_n: 64

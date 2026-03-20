@@ -47,6 +47,7 @@ class TrainingGround:
         self.episode_reward_list = []
         self.episode_length_list = []
         self.episode_loss_list = []
+        self.episode_actions_in_row_list = []
         self.episode_date_list = []
         self.episode_time_list = []
         self.episode = 0
@@ -211,6 +212,8 @@ class TrainingGround:
             episode_length = 0
             updating = True
             loss_list = []
+            prev_action = None
+            actions_in_row = [0]
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.get_lr())
 
@@ -227,6 +230,13 @@ class TrainingGround:
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 episode_reward += reward
+
+                if prev_action == action:
+                    actions_in_row[-1] += 1
+                else:
+                    prev_action = action
+                    if prev_action != None:
+                        actions_in_row.append(0)
 
                 # Pass log_prob only if using PPO
                 if self.algorithm == Algorithms.PPO:
@@ -306,6 +316,9 @@ class TrainingGround:
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
             self.episode_loss_list.append(np.mean(loss_list))
+            self.episode_actions_in_row_list.append(np.mean(actions_in_row))
+            print("actions_in_row:", np.mean(actions_in_row))
+            
             now_time = datetime.datetime.now()
             self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
             self.episode_time_list.append(now_time.time().strftime("%H:%M:%S"))
@@ -550,7 +563,7 @@ class TrainingGround:
                 self.state, info = self.env.reset(options={"reset_mask": dones})
 
             if self.timestep_n % self.when2sync == 0:
-                if self.algorithm == Algorithms.DQN:
+                if self.algorithm != Algorithms.PPO:
                     upd_net_param = self.driver.target_net.state_dict()
                     self.driver.policy_net.load_state_dict(upd_net_param)
 
@@ -662,6 +675,9 @@ class TrainingGround:
             episode_length = 0
             updating = True
             action = None
+            prev_action = None
+            actions_in_row = [0]
+            
 
             while updating:
                 episode_length += 1
@@ -673,6 +689,12 @@ class TrainingGround:
                     action = action_out
                     log_prob = None
                 actions[action] += 1
+                if prev_action == action:
+                    actions_in_row[-1] += 1
+                else:
+                    prev_action = action
+                    if prev_action != None:
+                        actions_in_row.append(0)
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 episode_reward += reward
@@ -685,6 +707,8 @@ class TrainingGround:
             print(f"    episode length {episode_length}")
             print(f"    info {info}")
             print(f"    actions {actions}")
+            print("actions_in_row:", np.mean(actions_in_row))
+            
 
     def eval_vec(self):
         if not self.eval_tracks:
