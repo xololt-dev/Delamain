@@ -10,6 +10,10 @@ from enviroment.GreyscaleObservation import GreyscaleObservation
 from enviroment.HSLObservation import HSLObservation
 from enviroment.GreyscaleObservationVec import GreyscaleObservationVec
 from enviroment.HSLObservationVec import HSLObservationVec
+from enviroment.GaussianAntialiasObservation import GaussianAntialiasObservation
+from enviroment.GaussianAntialiasObservationVec import GaussianAntialiasObservationVec
+from enviroment.EdgeAntialiasObservation import EdgeAntialiasObservation
+from enviroment.EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
 
 
 SKIP = 4
@@ -427,16 +431,22 @@ class TestVisualSnapshots:
 
         # Unwrapped vec env for original RGB
         env_raw = gym.make_vec(
-            "CarRacing-v3", num_envs=2, vectorization_mode=gym.VectorizeMode.ASYNC,
-            continuous=False, render_mode="rgb_array",
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
         )
         obs_raw, _ = env_raw.reset(seed=seeds)
         obs_raw, _, _, _, _ = env_raw.step([3, 3])
 
         # Wrapped vec env for greyscale
         env_grey = gym.make_vec(
-            "CarRacing-v3", num_envs=2, vectorization_mode=gym.VectorizeMode.ASYNC,
-            continuous=False, render_mode="rgb_array",
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
         )
         env_grey = GreyscaleObservationVec(env_grey)
         obs_grey, _ = env_grey.reset(seed=seeds)
@@ -472,16 +482,22 @@ class TestVisualSnapshots:
 
         # Unwrapped vec env for original RGB
         env_raw = gym.make_vec(
-            "CarRacing-v3", num_envs=2, vectorization_mode=gym.VectorizeMode.ASYNC,
-            continuous=False, render_mode="rgb_array",
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
         )
         obs_raw, _ = env_raw.reset(seed=seeds)
         obs_raw, _, _, _, _ = env_raw.step([3, 3])
 
         # Wrapped vec env for HSL
         env_hsl = gym.make_vec(
-            "CarRacing-v3", num_envs=2, vectorization_mode=gym.VectorizeMode.ASYNC,
-            continuous=False, render_mode="rgb_array",
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
         )
         env_hsl = HSLObservationVec(env_hsl)
         obs_hsl, _ = env_hsl.reset(seed=seeds)
@@ -514,3 +530,427 @@ class TestVisualSnapshots:
 
         env_raw.close()
         env_hsl.close()
+
+
+# =============================================================================
+# Antialiasing wrapper tests
+# =============================================================================
+
+# --- GaussianAntialias scalar tests ---
+
+
+@pytest.fixture
+def gauss_env():
+    """Scalar CarRacing env wrapped with GaussianAntialiasObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = GaussianAntialiasObservation(env)
+    return env
+
+
+@pytest.fixture
+def gauss_hsl_env():
+    """Scalar CarRacing env: GaussianAntialias -> HSLObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = GaussianAntialiasObservation(env)
+    env = HSLObservation(env)
+    return env
+
+
+class TestGaussianAntialiasObservation:
+    def test_reset_returns_correct_shape(self, gauss_env):
+        obs, info = gauss_env.reset(seed=42)
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, gauss_env):
+        gauss_env.reset(seed=42)
+        obs, reward, terminated, truncated, info = gauss_env.step(3)
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+        assert isinstance(reward, (float, np.floating))
+        assert isinstance(terminated, bool)
+        assert isinstance(truncated, bool)
+
+    def test_observation_space(self, gauss_env):
+        assert gauss_env.observation_space.shape == (96, 96, 3)
+        assert gauss_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, gauss_env):
+        gauss_env.reset(seed=42)
+        obs, _, _, _, _ = gauss_env.step(3)
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_non_zero_after_reset(self, gauss_env):
+        obs, _ = gauss_env.reset(seed=42)
+        assert not np.all(obs == 0)
+
+    def test_smoothing_effect(self, gauss_env):
+        """Antialiased frame should have lower high-frequency variance than raw."""
+        env_raw = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        raw, _ = env_raw.reset(seed=42)
+        raw, _, _, _, _ = env_raw.step(3)
+        aa, _ = gauss_env.reset(seed=42)
+        aa, _, _, _, _ = gauss_env.step(3)
+        raw_var = np.var(raw.astype(np.float64))
+        aa_var = np.var(aa.astype(np.float64))
+        assert aa_var <= raw_var
+        env_raw.close()
+
+    def test_with_hsl(self, gauss_hsl_env):
+        obs, _ = gauss_hsl_env.reset(seed=42)
+        assert obs.shape == (96, 96, 3)
+        obs, _, _, _, _ = gauss_hsl_env.step(3)
+        assert obs.shape == (96, 96, 3)
+        gauss_hsl_env.close()
+
+
+# --- GaussianAntialias vec tests ---
+
+
+@pytest.fixture
+def gauss_vec_env():
+    """Vectorized CarRacing env (2 envs) wrapped with GaussianAntialiasObservationVec."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = GaussianAntialiasObservationVec(env)
+    return env
+
+
+class TestGaussianAntialiasObservationVec:
+    def test_reset_returns_correct_shape(self, gauss_vec_env):
+        obs, info = gauss_vec_env.reset(seed=[42, 43])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, gauss_vec_env):
+        gauss_vec_env.reset(seed=[42, 43])
+        obs, reward, terminated, truncated, info = gauss_vec_env.step([3, 3])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        assert reward.shape == (NUM_ENVS,)
+        assert terminated.shape == (NUM_ENVS,)
+        assert truncated.shape == (NUM_ENVS,)
+
+    def test_observation_space(self, gauss_vec_env):
+        assert gauss_vec_env.observation_space.shape == (NUM_ENVS, 96, 96, 3)
+        assert gauss_vec_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, gauss_vec_env):
+        gauss_vec_env.reset(seed=[42, 43])
+        obs, _, _, _, _ = gauss_vec_env.step([3, 3])
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_multiple_steps(self, gauss_vec_env):
+        gauss_vec_env.reset(seed=[42, 43])
+        for _ in range(3):
+            obs, _, _, _, _ = gauss_vec_env.step([3, 3])
+            assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        gauss_vec_env.close()
+
+
+# --- EdgeAntialias scalar tests ---
+
+
+@pytest.fixture
+def edge_env():
+    """Scalar CarRacing env wrapped with EdgeAntialiasObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = EdgeAntialiasObservation(env)
+    return env
+
+
+@pytest.fixture
+def edge_hsl_env():
+    """Scalar CarRacing env: EdgeAntialias -> HSLObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = EdgeAntialiasObservation(env)
+    env = HSLObservation(env)
+    return env
+
+
+class TestEdgeAntialiasObservation:
+    def test_reset_returns_correct_shape(self, edge_env):
+        obs, info = edge_env.reset(seed=42)
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, edge_env):
+        edge_env.reset(seed=42)
+        obs, reward, terminated, truncated, info = edge_env.step(3)
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+        assert isinstance(reward, (float, np.floating))
+        assert isinstance(terminated, bool)
+        assert isinstance(truncated, bool)
+
+    def test_observation_space(self, edge_env):
+        assert edge_env.observation_space.shape == (96, 96, 3)
+        assert edge_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, edge_env):
+        edge_env.reset(seed=42)
+        obs, _, _, _, _ = edge_env.step(3)
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_non_zero_after_reset(self, edge_env):
+        obs, _ = edge_env.reset(seed=42)
+        assert not np.all(obs == 0)
+
+    def test_preserves_non_edge_pixels(self, edge_env):
+        """With high threshold, most pixels should be unchanged."""
+        env_high_thresh = gym.make(
+            "CarRacing-v3", continuous=False, render_mode="rgb_array"
+        )
+        env_high_thresh = EdgeAntialiasObservation(
+            env_high_thresh, edge_threshold=0.5, strength=0.5
+        )
+        raw_env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        raw, _ = raw_env.reset(seed=42)
+        raw, _, _, _, _ = raw_env.step(3)
+        aa, _ = env_high_thresh.reset(seed=42)
+        aa, _, _, _, _ = env_high_thresh.step(3)
+        match_ratio = np.mean(raw == aa)
+        assert match_ratio > 0.5
+        raw_env.close()
+        env_high_thresh.close()
+
+    def test_with_hsl(self, edge_hsl_env):
+        obs, _ = edge_hsl_env.reset(seed=42)
+        assert obs.shape == (96, 96, 3)
+        obs, _, _, _, _ = edge_hsl_env.step(3)
+        assert obs.shape == (96, 96, 3)
+        edge_hsl_env.close()
+
+
+# --- EdgeAntialias vec tests ---
+
+
+@pytest.fixture
+def edge_vec_env():
+    """Vectorized CarRacing env (2 envs) wrapped with EdgeAntialiasObservationVec."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = EdgeAntialiasObservationVec(env)
+    return env
+
+
+class TestEdgeAntialiasObservationVec:
+    def test_reset_returns_correct_shape(self, edge_vec_env):
+        obs, info = edge_vec_env.reset(seed=[42, 43])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, edge_vec_env):
+        edge_vec_env.reset(seed=[42, 43])
+        obs, reward, terminated, truncated, info = edge_vec_env.step([3, 3])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        assert reward.shape == (NUM_ENVS,)
+        assert terminated.shape == (NUM_ENVS,)
+        assert truncated.shape == (NUM_ENVS,)
+
+    def test_observation_space(self, edge_vec_env):
+        assert edge_vec_env.observation_space.shape == (NUM_ENVS, 96, 96, 3)
+        assert edge_vec_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, edge_vec_env):
+        edge_vec_env.reset(seed=[42, 43])
+        obs, _, _, _, _ = edge_vec_env.step([3, 3])
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_multiple_steps(self, edge_vec_env):
+        edge_vec_env.reset(seed=[42, 43])
+        for _ in range(3):
+            obs, _, _, _, _ = edge_vec_env.step([3, 3])
+            assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        edge_vec_env.close()
+
+
+# --- Visual snapshot tests (antialiasing) ---
+# Run with: venv/bin/python -m pytest tests/test_wrappers.py::TestAntialiasVisualSnapshots -v -s
+
+
+def _warmup_env(env, seed):
+    """Step through environment to let camera settle into position."""
+    for _ in range(4):
+        env.step(3)
+    for _ in range(2):
+        env.step(0)
+
+
+class TestAntialiasVisualSnapshots:
+    def test_gaussian_antialias_snapshot(self):
+        """Save original RGB and Gaussian-antialiased frame as PNGs."""
+        out_dir = os.path.join(IMAGES_DIR, "gaussian_antialias")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env_raw = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_raw.reset(seed=42)
+        _warmup_env(env_raw, 42)
+        raw, _, _, _, _ = env_raw.step(3)
+
+        env_aa = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_aa = GaussianAntialiasObservation(env_aa)
+        env_aa.reset(seed=42)
+        _warmup_env(env_aa, 42)
+        aa, _, _, _, _ = env_aa.step(3)
+
+        raw_path = os.path.join(out_dir, "original_rgb.png")
+        mpimg.imsave(raw_path, raw)
+        aa_path = os.path.join(out_dir, "gaussian_antialiased.png")
+        mpimg.imsave(aa_path, aa)
+
+        side_by_side = np.concatenate([raw, aa], axis=1)
+        sb_path = os.path.join(out_dir, "comparison_side_by_side.png")
+        mpimg.imsave(sb_path, side_by_side)
+
+        print(f"\n  Saved: {os.path.abspath(raw_path)}")
+        print(f"  Saved: {os.path.abspath(aa_path)}")
+        print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env_raw.close()
+        env_aa.close()
+
+    def test_edge_antialias_snapshot(self):
+        """Save original RGB and edge-aware-antialiased frame as PNGs."""
+        out_dir = os.path.join(IMAGES_DIR, "edge_antialias")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env_raw = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_raw.reset(seed=42)
+        _warmup_env(env_raw, 42)
+        raw, _, _, _, _ = env_raw.step(3)
+
+        env_aa = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_aa = EdgeAntialiasObservation(env_aa)
+        env_aa.reset(seed=42)
+        _warmup_env(env_aa, 42)
+        aa, _, _, _, _ = env_aa.step(3)
+
+        raw_path = os.path.join(out_dir, "original_rgb.png")
+        mpimg.imsave(raw_path, raw)
+        aa_path = os.path.join(out_dir, "edge_antialiased.png")
+        mpimg.imsave(aa_path, aa)
+
+        side_by_side = np.concatenate([raw, aa], axis=1)
+        sb_path = os.path.join(out_dir, "comparison_side_by_side.png")
+        mpimg.imsave(sb_path, side_by_side)
+
+        print(f"\n  Saved: {os.path.abspath(raw_path)}")
+        print(f"  Saved: {os.path.abspath(aa_path)}")
+        print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env_raw.close()
+        env_aa.close()
+
+    def test_gaussian_vec_snapshot(self):
+        """Save Gaussian-antialiased frames from Vec env."""
+        out_dir = os.path.join(IMAGES_DIR, "gaussian_antialias_vec")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env_raw = gym.make_vec(
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
+        )
+        env_raw.reset(seed=[42, 43])
+        for _ in range(4):
+            env_raw.step([3, 3])
+        for _ in range(2):
+            env_raw.step([0, 0])
+        raw, _, _, _, _ = env_raw.step([3, 3])
+
+        env_aa = gym.make_vec(
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
+        )
+        env_aa = GaussianAntialiasObservationVec(env_aa)
+        env_aa.reset(seed=[42, 43])
+        for _ in range(4):
+            env_aa.step([3, 3])
+        for _ in range(2):
+            env_aa.step([0, 0])
+        aa, _, _, _, _ = env_aa.step([3, 3])
+
+        for i in range(2):
+            raw_path = os.path.join(out_dir, f"original_env{i}.png")
+            mpimg.imsave(raw_path, raw[i])
+            aa_path = os.path.join(out_dir, f"gaussian_env{i}.png")
+            mpimg.imsave(aa_path, aa[i])
+            side_by_side = np.concatenate([raw[i], aa[i]], axis=1)
+            sb_path = os.path.join(out_dir, f"comparison_env{i}.png")
+            mpimg.imsave(sb_path, side_by_side)
+
+            print(f"\n  Saved: {os.path.abspath(raw_path)}")
+            print(f"  Saved: {os.path.abspath(aa_path)}")
+            print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env_raw.close()
+        env_aa.close()
+
+    def test_edge_vec_snapshot(self):
+        """Save edge-aware-antialiased frames from Vec env."""
+        out_dir = os.path.join(IMAGES_DIR, "edge_antialias_vec")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env_raw = gym.make_vec(
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
+        )
+        env_raw.reset(seed=[42, 43])
+        for _ in range(4):
+            env_raw.step([3, 3])
+        for _ in range(2):
+            env_raw.step([0, 0])
+        raw, _, _, _, _ = env_raw.step([3, 3])
+
+        env_aa = gym.make_vec(
+            "CarRacing-v3",
+            num_envs=2,
+            vectorization_mode=gym.VectorizeMode.ASYNC,
+            continuous=False,
+            render_mode="rgb_array",
+        )
+        env_aa = EdgeAntialiasObservationVec(env_aa)
+        env_aa.reset(seed=[42, 43])
+        for _ in range(4):
+            env_aa.step([3, 3])
+        for _ in range(2):
+            env_aa.step([0, 0])
+        aa, _, _, _, _ = env_aa.step([3, 3])
+
+        for i in range(2):
+            raw_path = os.path.join(out_dir, f"original_env{i}.png")
+            mpimg.imsave(raw_path, raw[i])
+            aa_path = os.path.join(out_dir, f"edge_env{i}.png")
+            mpimg.imsave(aa_path, aa[i])
+            side_by_side = np.concatenate([raw[i], aa[i]], axis=1)
+            sb_path = os.path.join(out_dir, f"comparison_env{i}.png")
+            mpimg.imsave(sb_path, side_by_side)
+
+            print(f"\n  Saved: {os.path.abspath(raw_path)}")
+            print(f"  Saved: {os.path.abspath(aa_path)}")
+            print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env_raw.close()
+        env_aa.close()
