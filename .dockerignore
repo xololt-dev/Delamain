@@ -1,4 +1,6 @@
 .git
 venv
+.pytest_cache
 
 **/*.pyc
+**/*.png

@@ -5,18 +5,22 @@ import numpy as np
 import cv2
 import matplotlib.image as mpimg
 
-from enviroment.SkipFrame import SkipFrame
-from enviroment.SkipFrameVec import SkipFrameVec
-from enviroment.GreyscaleObservation import GreyscaleObservation
-from enviroment.HSLObservation import HSLObservation
-from enviroment.GreyscaleObservationVec import GreyscaleObservationVec
-from enviroment.HSLObservationVec import HSLObservationVec
-from enviroment.GaussianAntialiasObservation import GaussianAntialiasObservation
-from enviroment.GaussianAntialiasObservationVec import GaussianAntialiasObservationVec
-from enviroment.EdgeAntialiasObservation import EdgeAntialiasObservation
-from enviroment.EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
-from enviroment.OpticalFlowObservation import OpticalFlowObservation
-from enviroment.OpticalFlowObservationVec import OpticalFlowObservationVec
+from enviroment.wrappers.SkipFrame import SkipFrame
+from enviroment.wrappers.SkipFrameVec import SkipFrameVec
+from enviroment.wrappers.GreyscaleObservation import GreyscaleObservation
+from enviroment.wrappers.HSLObservation import HSLObservation
+from enviroment.wrappers.GreyscaleObservationVec import GreyscaleObservationVec
+from enviroment.wrappers.HSLObservationVec import HSLObservationVec
+from enviroment.wrappers.GaussianAntialiasObservation import (
+    GaussianAntialiasObservation,
+)
+from enviroment.wrappers.GaussianAntialiasObservationVec import (
+    GaussianAntialiasObservationVec,
+)
+from enviroment.wrappers.EdgeAntialiasObservation import EdgeAntialiasObservation
+from enviroment.wrappers.EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
+from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
+from enviroment.wrappers.OpticalFlowObservationVec import OpticalFlowObservationVec
 
 
 SKIP = 4
@@ -1113,7 +1117,9 @@ class TestOpticalFlowObservationVec:
 
     def test_step_returns_correct_shape_grey(self, optical_flow_grey_vec_env):
         optical_flow_grey_vec_env.reset(seed=[42, 43])
-        obs, reward, terminated, truncated, info = optical_flow_grey_vec_env.step([3, 3])
+        obs, reward, terminated, truncated, info = optical_flow_grey_vec_env.step(
+            [3, 3]
+        )
         assert obs.shape == (NUM_ENVS, 96, 96, 3)
 
     def test_values_in_range_hsl(self, optical_flow_hsl_vec_env):
@@ -1163,8 +1169,10 @@ class TestOpticalFlowVisualSnapshots:
 
         hsv = np.zeros((dx.shape[0], dx.shape[1], 3), dtype=np.uint8)
         hsv[..., 0] = ang * 180 / np.pi / 2  # Hue: direction
-        hsv[..., 1] = 255                      # Saturation: full
-        hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)  # Value: magnitude
+        hsv[..., 1] = 255  # Saturation: full
+        hsv[..., 2] = cv2.normalize(
+            mag, None, 0, 255, cv2.NORM_MINMAX
+        )  # Value: magnitude
 
         return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
 

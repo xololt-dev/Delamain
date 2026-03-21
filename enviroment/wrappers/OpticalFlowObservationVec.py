@@ -3,7 +3,7 @@ import numpy as np
 from gymnasium.spaces import Box
 from typing import Any
 
-from enviroment.OpticalFlowObservation import OpticalFlowObservation
+from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
 
 
 class OpticalFlowObservationVec(gym.vector.VectorWrapper):
@@ -31,23 +31,25 @@ class OpticalFlowObservationVec(gym.vector.VectorWrapper):
         self._channels = channels
 
         self.observation_space = Box(
-            low=0, high=255,
-            shape=(n, h, w, channels + 2),
-            dtype=np.uint8
+            low=0, high=255, shape=(n, h, w, channels + 2), dtype=np.uint8
         )
 
     def step(self, actions):
         obs, reward, terminated, truncated, info = self.env.step(actions)
-        transformed = np.array([
-            OpticalFlowObservation._transform_single(obs[i], self._channels)
-            for i in range(obs.shape[0])
-        ])
+        transformed = np.array(
+            [
+                OpticalFlowObservation._transform_single(obs[i], self._channels)
+                for i in range(obs.shape[0])
+            ]
+        )
         return transformed, reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)
-        transformed = np.array([
-            OpticalFlowObservation._transform_single(obs[i], self._channels)
-            for i in range(obs.shape[0])
-        ])
+        transformed = np.array(
+            [
+                OpticalFlowObservation._transform_single(obs[i], self._channels)
+                for i in range(obs.shape[0])
+            ]
+        )
         return transformed, info

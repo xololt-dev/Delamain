@@ -9,6 +9,7 @@ ENV LD_LIBRARY_PATH=/opt/rocm/lib:/usr/local/lib:$LD_LIBRARY_PATH
 
 COPY alternative_models /Delamain/alternative_models
 COPY enviroment /Delamain/enviroment
+COPY tests /Delamain/tests
 COPY delamain_req.txt /Delamain/
 COPY main.py /Delamain/
 COPY training_params.yaml /Delamain/

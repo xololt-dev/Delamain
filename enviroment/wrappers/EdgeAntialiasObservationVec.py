@@ -2,7 +2,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
 
-from enviroment.EdgeAntialiasObservation import EdgeAntialiasObservation
+from enviroment.wrappers.EdgeAntialiasObservation import EdgeAntialiasObservation
 
 
 class EdgeAntialiasObservationVec(gym.vector.VectorWrapper):
@@ -30,8 +30,21 @@ class EdgeAntialiasObservationVec(gym.vector.VectorWrapper):
 
     def step(self, actions):
         obs, reward, terminated, truncated, info = self.env.step(actions)
-        return EdgeAntialiasObservation._antialias(obs, self._edge_threshold, self._strength), reward, terminated, truncated, info
+        return (
+            EdgeAntialiasObservation._antialias(
+                obs, self._edge_threshold, self._strength
+            ),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)
-        return EdgeAntialiasObservation._antialias(obs, self._edge_threshold, self._strength), info
+        return (
+            EdgeAntialiasObservation._antialias(
+                obs, self._edge_threshold, self._strength
+            ),
+            info,
+        )

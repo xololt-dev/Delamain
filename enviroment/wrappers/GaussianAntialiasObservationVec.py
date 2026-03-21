@@ -2,7 +2,9 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
 
-from enviroment.GaussianAntialiasObservation import GaussianAntialiasObservation
+from enviroment.wrappers.GaussianAntialiasObservation import (
+    GaussianAntialiasObservation,
+)
 
 
 class GaussianAntialiasObservationVec(gym.vector.VectorWrapper):
@@ -29,8 +31,21 @@ class GaussianAntialiasObservationVec(gym.vector.VectorWrapper):
 
     def step(self, actions):
         obs, reward, terminated, truncated, info = self.env.step(actions)
-        return GaussianAntialiasObservation._antialias(obs, self._kernel_size, self._sigma), reward, terminated, truncated, info
+        return (
+            GaussianAntialiasObservation._antialias(
+                obs, self._kernel_size, self._sigma
+            ),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)
-        return GaussianAntialiasObservation._antialias(obs, self._kernel_size, self._sigma), info
+        return (
+            GaussianAntialiasObservation._antialias(
+                obs, self._kernel_size, self._sigma
+            ),
+            info,
+        )
