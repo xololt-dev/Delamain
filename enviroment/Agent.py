@@ -293,6 +293,7 @@ class Agent:
         loss_list: list,
         epsilon_list: list,
         lr_list: list,
+        actions_in_row_list: list | None = None,
         fuel_efficiency_list: list | None = None,
         log_filename: str = "default_log.csv",
     ):
@@ -315,6 +316,8 @@ class Agent:
 
             lr_list (list) : A list of learning rate values recorded during training.
 
+            actions_in_row_list (list) : A list of actions in row values recorded during training.
+
             fuel_efficiency_list (list) : A list of fuel efficiency values recorded during training.
 
             log_filename (str) : The name of the CSV file to save the logs.
@@ -330,6 +333,8 @@ class Agent:
             ["epsilon"] + epsilon_list,
             ["lr"] + lr_list,
         ]
+        if actions_in_row_list is not None:
+            rows.append(["actions_in_row"] + actions_in_row_list)
         if fuel_efficiency_list is not None:
             rows.append(["fuel_efficiency"] + fuel_efficiency_list)
         with open(self.LOG_DIR + log_filename, "w") as csvfile:

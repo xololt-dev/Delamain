@@ -339,18 +339,19 @@ class TrainingGround:
                     self.episode, self.episode_reward_list, self.timestep_n
                 )
 
-                if self.episode % self.when2log == 0:
-                    self.driver.write_log(
-                        self.episode_date_list,
-                        self.episode_time_list,
-                        self.episode_reward_list,
-                        self.episode_length_list,
-                        self.episode_loss_list,
-                        self.episode_epsilon_list,
-                        self.episode_lr_list,
-                        self.episode_fuel_efficiency_list,
-                        log_filename=f"{self.class_name}_log_test.csv",
-                    )
+            if self.episode % self.when2log == 0:
+                self.driver.write_log(
+                    self.episode_date_list,
+                    self.episode_time_list,
+                    self.episode_reward_list,
+                    self.episode_length_list,
+                    self.episode_loss_list,
+                    self.episode_epsilon_list,
+                    self.episode_lr_list,
+                    self.episode_actions_in_row_list,
+                    self.episode_fuel_efficiency_list,
+                    log_filename=f"{self.class_name}_log_test.csv",
+                )
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
         self.env.close()
@@ -365,12 +366,17 @@ class TrainingGround:
         current_ep_rewards = np.zeros(self.envs_num)
         current_ep_lengths = np.zeros(self.envs_num)
         last_loss = 0.0
+        prev_action = np.full(self.envs_num, None)
+        actions_in_row = []
         actions = np.zeros((self.envs_num, 5), dtype=np.uint8)
 
         while self.episode <= self.play_n_episodes:
             self.episode += 1
             current_ep_rewards.fill(0)
             current_ep_lengths.fill(0)
+            prev_action.fill(None)
+            for i in range(0, self.envs_num):
+                actions_in_row.append([0])
             actions.fill(0)
             updating = True
 
@@ -387,6 +393,14 @@ class TrainingGround:
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 rows = np.arange(len(action))
                 np.add.at(actions, (rows, action), 1)
+
+                for i in range(0, len(action)):
+                    if prev_action[i] == action[i]:
+                        actions_in_row[i][-1] += 1
+                    else:
+                        prev_action[i] = action[i]
+                        if prev_action[i] != None:
+                            actions_in_row[i].append(0)
 
                 current_ep_rewards += reward
                 current_ep_lengths += 1
@@ -416,6 +430,11 @@ class TrainingGround:
                         self.episode_loss_list.append(last_loss)
                         self.episode_epsilon_list.append(self.driver.epsilon)
                         self.episode_lr_list.append(self.driver.get_lr())
+                        self.episode_actions_in_row_list.append(
+                            np.mean(actions_in_row[i])
+                        )
+                        prev_action[i] = None
+                        actions_in_row[i] = [0]
 
                         efficiency_bonus = 1.0 + np.sum(actions[i, :3]) * 0.01
                         penalty = np.dot(actions[i, 3:], self.FUEL_PENALTY_ARR)
@@ -514,6 +533,7 @@ class TrainingGround:
                     self.episode_loss_list,
                     self.episode_epsilon_list,
                     self.episode_lr_list,
+                    self.episode_actions_in_row_list,
                     self.episode_fuel_efficiency_list,
                     log_filename=f"{self.class_name}_log_test.csv",
                 )
@@ -661,6 +681,7 @@ class TrainingGround:
                     self.episode_loss_list,
                     self.episode_epsilon_list,
                     self.episode_lr_list,
+                    self.episode_actions_in_row_list,
                     self.episode_fuel_efficiency_list,
                     log_filename=f"{self.class_name}_log_test.csv",
                 )

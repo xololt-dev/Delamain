@@ -410,16 +410,42 @@ class AgentPPO:
 
     def write_log(
         self,
-        date_list,
-        time_list,
-        reward_list,
-        length_list,
-        loss_list,
-        epsilon_list,
-        lr_list,
+        date_list: list,
+        time_list: list,
+        reward_list: list,
+        length_list: list,
+        loss_list: list,
+        epsilon_list: list,
+        lr_list: list,
+        actions_in_row_list: list | None = None,
         fuel_efficiency_list: list | None = None,
-        log_filename="default_log.csv",
+        log_filename: str = "default_log.csv",
     ):
+        """
+        Writes training logs to a CSV file.
+
+        Parameters:
+            date_list (list) : A list of dates corresponding to the episodes.
+
+            time_list (list) : A list of times corresponding to the episodes.
+
+            reward_list (list) : A list of rewards obtained in each episode.
+
+            length_list (list) : A list of episode lengths (number of steps).
+
+            loss_list (list) : A list of losses recorded during training.
+
+            epsilon_list (list) : A list of epsilon values (exploration rates)
+            during training.
+
+            lr_list (list) : A list of learning rate values recorded during training.
+
+            actions_in_row_list (list) : A list of actions in row values recorded during training.
+
+            fuel_efficiency_list (list) : A list of fuel efficiency values recorded during training.
+
+            log_filename (str) : The name of the CSV file to save the logs.
+        """
         # Matches original Agent exactly
         if not os.path.exists(self.LOG_DIR):
             os.makedirs(self.LOG_DIR)
@@ -432,6 +458,8 @@ class AgentPPO:
             ["epsilon"] + epsilon_list,
             ["lr"] + lr_list,
         ]
+        if actions_in_row_list is not None:
+            rows.append(["actions_in_row"] + actions_in_row_list)
         if fuel_efficiency_list is not None:
             rows.append(["fuel_efficiency"] + fuel_efficiency_list)
         with open(self.LOG_DIR + log_filename, "w") as csvfile:
