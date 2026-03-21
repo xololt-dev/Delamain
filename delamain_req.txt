@@ -4,3 +4,4 @@ gymnasium[other]
 torchrl
 pyyaml
 torchvision
+opencv-python

@@ -19,10 +19,17 @@ Parameters file used for setting up the eval / training enviroment is written in
     - boolean
   - envs_num
     - int
+  - optical_flow
+    - boolean
+    - enables optical flow wrapper (dx, dy channels added after SkipFrame)
   - mode
     - string
     - options: 'train', 'eval', None
     - default: 'train'
+  - device
+    - string
+    - options: 'CPU', 'cuda', None
+    - default: auto-detected (cuda if available)
 - train:
   - algorithm
     - string
@@ -41,6 +48,8 @@ Parameters file used for setting up the eval / training enviroment is written in
   - epsilon_decay
     - float
   - lr
+    - float
+  - lr_decay
     - float
   - buffer_size
     - int

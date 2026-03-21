@@ -9,16 +9,23 @@ import matplotlib
 import matplotlib.pyplot as plt
 import time
 
+from functools import partial
+
 from enviroment.AgentDDQN import AgentDDQN
 from enviroment.Agent import Agent
 from enviroment.AgentPPO import AgentPPO
 from enviroment.Algorithms import Algorithms
+from enviroment.HSLObservation import HSLObservation
+from enviroment.HSLObservationVec import HSLObservationVec
 from enviroment.SkipFrame import SkipFrame
 from enviroment.SkipFrameVec import SkipFrameVec
+from enviroment.OpticalFlowObservation import OpticalFlowObservation
+from enviroment.OpticalFlowObservationVec import OpticalFlowObservationVec
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
+from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
 
 # set up matplotlib
 is_ipython = "inline" in matplotlib.get_backend()
@@ -64,6 +71,8 @@ class TrainingGround:
         ]
         self.vec: bool = yamlValues["env"].get("vec", False)
         self.envs_num: int = yamlValues["env"].get("envs_num", 1)
+        self._skip_frames: int = yamlValues["env"].get("skip_frames", 4)
+        self._optical_flow: bool = yamlValues["env"].get("optical_flow", False)
 
         if self.vec:
             self.env = gym.make_vec(
@@ -77,11 +86,17 @@ class TrainingGround:
                 render_mode="rgb_array",
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
-
+            self.env = HSLObservationVec(self.env)
             self.env = SkipFrameVec(
                 self.env,
-                skip=yamlValues["env"].get("skip_frames", 4),
+                skip=self._skip_frames,
             )
+            if self._optical_flow:
+                self.env = OpticalFlowObservationVec(
+                    self.env,
+                    skip=self._skip_frames,
+                    channels=3,
+                )
         else:
             self.env = gym.make(
                 self.ENVIROMENT,
@@ -89,7 +104,15 @@ class TrainingGround:
                 render_mode="rgb_array",
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
-            self.env = SkipFrame(self.env, skip=yamlValues["env"].get("skip_frames", 4))
+
+            self.env = HSLObservation(self.env)
+            self.env = SkipFrame(self.env, skip=self._skip_frames)
+            if self._optical_flow:
+                self.env = OpticalFlowObservation(
+                    self.env,
+                    skip=self._skip_frames,
+                    channels=3,
+                )
 
             if yamlValues["eval"]["video"]:
                 self.env = gym.wrappers.RecordVideo(
@@ -160,7 +183,17 @@ class TrainingGround:
         self.when2log = section.get("when2log", 10)  # in episodes
         self.report_type = section.get("report_type", "text")
 
-    def parse_class_name(self, class_name: str | None) -> type[nn.Module]:
+    def _get_input_channels(self) -> int:
+        """Compute the number of input channels based on the wrapper chain."""
+        skip_frames = self._skip_frames
+        optical_flow = self._optical_flow
+        base_channels = 3  # HSLObservation always outputs 3 channels
+
+        if optical_flow:
+            return base_channels + 2  # HSL channels + dx + dy
+        return skip_frames * base_channels
+
+    def parse_class_name(self, class_name: str | None):
         match class_name:
             case "Delamain":
                 return Delamain
@@ -172,6 +205,11 @@ class TrainingGround:
                 if self.algorithm == Algorithms.PPO:
                     return Delamain_2_5_PPO
                 return Delamain_2_5
+            case "Delamain_2_6":
+                in_channels = self._get_input_channels()
+                if self.algorithm == Algorithms.PPO:
+                    return partial(Delamain_2_6_PPO, in_channels=in_channels)
+                return partial(Delamain_2_6, in_channels=in_channels)
             case _:
                 return Delamain
 

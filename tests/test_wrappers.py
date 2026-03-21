@@ -2,6 +2,7 @@ import os
 import pytest
 import gymnasium as gym
 import numpy as np
+import cv2
 import matplotlib.image as mpimg
 
 from enviroment.SkipFrame import SkipFrame
@@ -14,6 +15,8 @@ from enviroment.GaussianAntialiasObservation import GaussianAntialiasObservation
 from enviroment.GaussianAntialiasObservationVec import GaussianAntialiasObservationVec
 from enviroment.EdgeAntialiasObservation import EdgeAntialiasObservation
 from enviroment.EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
+from enviroment.OpticalFlowObservation import OpticalFlowObservation
+from enviroment.OpticalFlowObservationVec import OpticalFlowObservationVec
 
 
 SKIP = 4
@@ -954,3 +957,342 @@ class TestAntialiasVisualSnapshots:
 
         env_raw.close()
         env_aa.close()
+
+
+# =============================================================================
+# Optical flow wrapper tests
+# =============================================================================
+
+# --- OpticalFlow scalar tests ---
+
+
+@pytest.fixture
+def optical_flow_hsl_env():
+    """Scalar CarRacing env: HSLObservation -> SkipFrame -> OpticalFlowObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = HSLObservation(env)
+    env = SkipFrame(env, skip=SKIP, channels=3)
+    env = OpticalFlowObservation(env, skip=SKIP, channels=3)
+    return env
+
+
+@pytest.fixture
+def optical_flow_grey_env():
+    """Scalar CarRacing env: GreyscaleObservation -> SkipFrame -> OpticalFlowObservation."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = GreyscaleObservation(env)
+    env = SkipFrame(env, skip=SKIP, channels=1)
+    env = OpticalFlowObservation(env, skip=SKIP, channels=1)
+    return env
+
+
+class TestOpticalFlowObservation:
+    def test_reset_returns_correct_shape_hsl(self, optical_flow_hsl_env):
+        obs, info = optical_flow_hsl_env.reset(seed=42)
+        # 3 HSL channels + 2 flow channels = 5
+        assert obs.shape == (96, 96, 5)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape_hsl(self, optical_flow_hsl_env):
+        optical_flow_hsl_env.reset(seed=42)
+        obs, reward, terminated, truncated, info = optical_flow_hsl_env.step(3)
+        assert obs.shape == (96, 96, 5)
+        assert obs.dtype == np.uint8
+        assert isinstance(reward, (float, np.floating))
+        assert isinstance(terminated, bool)
+        assert isinstance(truncated, bool)
+
+    def test_reset_returns_correct_shape_grey(self, optical_flow_grey_env):
+        obs, info = optical_flow_grey_env.reset(seed=42)
+        # 1 greyscale channel + 2 flow channels = 3
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape_grey(self, optical_flow_grey_env):
+        optical_flow_grey_env.reset(seed=42)
+        obs, reward, terminated, truncated, info = optical_flow_grey_env.step(3)
+        assert obs.shape == (96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_observation_space_hsl(self, optical_flow_hsl_env):
+        assert optical_flow_hsl_env.observation_space.shape == (96, 96, 5)
+        assert optical_flow_hsl_env.observation_space.dtype == np.uint8
+
+    def test_observation_space_grey(self, optical_flow_grey_env):
+        assert optical_flow_grey_env.observation_space.shape == (96, 96, 3)
+        assert optical_flow_grey_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range_hsl(self, optical_flow_hsl_env):
+        optical_flow_hsl_env.reset(seed=42)
+        obs, _, _, _, _ = optical_flow_hsl_env.step(3)
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_values_in_range_grey(self, optical_flow_grey_env):
+        optical_flow_grey_env.reset(seed=42)
+        obs, _, _, _, _ = optical_flow_grey_env.step(3)
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_non_zero_after_reset_hsl(self, optical_flow_hsl_env):
+        obs, _ = optical_flow_hsl_env.reset(seed=42)
+        assert not np.all(obs == 0)
+
+    def test_non_zero_after_reset_grey(self, optical_flow_grey_env):
+        obs, _ = optical_flow_grey_env.reset(seed=42)
+        assert not np.all(obs == 0)
+
+    def test_multiple_steps_hsl(self, optical_flow_hsl_env):
+        optical_flow_hsl_env.reset(seed=42)
+        for _ in range(3):
+            obs, _, _, _, _ = optical_flow_hsl_env.step(3)
+            assert obs.shape == (96, 96, 5)
+        optical_flow_hsl_env.close()
+
+    def test_multiple_steps_grey(self, optical_flow_grey_env):
+        optical_flow_grey_env.reset(seed=42)
+        for _ in range(3):
+            obs, _, _, _, _ = optical_flow_grey_env.step(3)
+            assert obs.shape == (96, 96, 3)
+        optical_flow_grey_env.close()
+
+
+# --- OpticalFlow vec tests ---
+
+
+@pytest.fixture
+def optical_flow_hsl_vec_env():
+    """Vectorized CarRacing env (2 envs): HSLObservationVec -> SkipFrameVec -> OpticalFlowObservationVec."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = HSLObservationVec(env)
+    env = SkipFrameVec(env, skip=SKIP, channels=3)
+    env = OpticalFlowObservationVec(env, skip=SKIP, channels=3)
+    return env
+
+
+@pytest.fixture
+def optical_flow_grey_vec_env():
+    """Vectorized CarRacing env (2 envs): GreyscaleObservationVec -> SkipFrameVec -> OpticalFlowObservationVec."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = GreyscaleObservationVec(env)
+    env = SkipFrameVec(env, skip=SKIP, channels=1)
+    env = OpticalFlowObservationVec(env, skip=SKIP, channels=1)
+    return env
+
+
+class TestOpticalFlowObservationVec:
+    def test_reset_returns_correct_shape_hsl(self, optical_flow_hsl_vec_env):
+        obs, info = optical_flow_hsl_vec_env.reset(seed=[42, 43])
+        assert obs.shape == (NUM_ENVS, 96, 96, 5)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape_hsl(self, optical_flow_hsl_vec_env):
+        optical_flow_hsl_vec_env.reset(seed=[42, 43])
+        obs, reward, terminated, truncated, info = optical_flow_hsl_vec_env.step([3, 3])
+        assert obs.shape == (NUM_ENVS, 96, 96, 5)
+        assert reward.shape == (NUM_ENVS,)
+        assert terminated.shape == (NUM_ENVS,)
+        assert truncated.shape == (NUM_ENVS,)
+
+    def test_reset_returns_correct_shape_grey(self, optical_flow_grey_vec_env):
+        obs, info = optical_flow_grey_vec_env.reset(seed=[42, 43])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape_grey(self, optical_flow_grey_vec_env):
+        optical_flow_grey_vec_env.reset(seed=[42, 43])
+        obs, reward, terminated, truncated, info = optical_flow_grey_vec_env.step([3, 3])
+        assert obs.shape == (NUM_ENVS, 96, 96, 3)
+
+    def test_values_in_range_hsl(self, optical_flow_hsl_vec_env):
+        optical_flow_hsl_vec_env.reset(seed=[42, 43])
+        obs, _, _, _, _ = optical_flow_hsl_vec_env.step([3, 3])
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_values_in_range_grey(self, optical_flow_grey_vec_env):
+        optical_flow_grey_vec_env.reset(seed=[42, 43])
+        obs, _, _, _, _ = optical_flow_grey_vec_env.step([3, 3])
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_multiple_steps_hsl(self, optical_flow_hsl_vec_env):
+        optical_flow_hsl_vec_env.reset(seed=[42, 43])
+        for _ in range(3):
+            obs, _, _, _, _ = optical_flow_hsl_vec_env.step([3, 3])
+            assert obs.shape == (NUM_ENVS, 96, 96, 5)
+        optical_flow_hsl_vec_env.close()
+
+    def test_multiple_steps_grey(self, optical_flow_grey_vec_env):
+        optical_flow_grey_vec_env.reset(seed=[42, 43])
+        for _ in range(3):
+            obs, _, _, _, _ = optical_flow_grey_vec_env.step([3, 3])
+            assert obs.shape == (NUM_ENVS, 96, 96, 3)
+        optical_flow_grey_vec_env.close()
+
+
+# --- OpticalFlow visual snapshot tests ---
+# Run with: venv/bin/python -m pytest tests/test_wrappers.py::TestOpticalFlowVisualSnapshots -v -s
+
+
+class TestOpticalFlowVisualSnapshots:
+    @staticmethod
+    def _flow_to_hsv(dx: np.ndarray, dy: np.ndarray) -> np.ndarray:
+        """Convert dx/dy flow to HSV color-coded RGB image.
+
+        Hue = flow direction, Saturation = 1, Value = flow magnitude.
+        This is the standard optical flow visualization.
+        """
+        # Convert from uint8 (0-255) back to signed range
+        dx_signed = (dx.astype(np.float32) - 127.5) / 127.5
+        dy_signed = (dy.astype(np.float32) - 127.5) / 127.5
+
+        mag, ang = cv2.cartToPolar(dx_signed, dy_signed)
+
+        hsv = np.zeros((dx.shape[0], dx.shape[1], 3), dtype=np.uint8)
+        hsv[..., 0] = ang * 180 / np.pi / 2  # Hue: direction
+        hsv[..., 1] = 255                      # Saturation: full
+        hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)  # Value: magnitude
+
+        return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+
+    def test_optical_flow_hsl_snapshot(self):
+        """Save HSL + optical flow channels as individual PNGs and HSV visualization."""
+        out_dir = os.path.join(IMAGES_DIR, "optical_flow_hsl")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env = HSLObservation(env)
+        env = SkipFrame(env, skip=SKIP, channels=3)
+        env = OpticalFlowObservation(env, skip=SKIP, channels=3)
+
+        env.reset(seed=42)
+        # Warm up
+        for _ in range(4):
+            env.step(3)
+        for _ in range(2):
+            env.step(0)
+        obs, _, _, _, _ = env.step(3)
+
+        # Save individual channels
+        h_path = os.path.join(out_dir, "hsl_h.png")
+        mpimg.imsave(h_path, obs[:, :, 0], cmap="gray")
+
+        s_path = os.path.join(out_dir, "hsl_s.png")
+        mpimg.imsave(s_path, obs[:, :, 1], cmap="gray")
+
+        l_path = os.path.join(out_dir, "hsl_l.png")
+        mpimg.imsave(l_path, obs[:, :, 2], cmap="gray")
+
+        dx_path = os.path.join(out_dir, "flow_dx.png")
+        mpimg.imsave(dx_path, obs[:, :, 3], cmap="gray")
+
+        dy_path = os.path.join(out_dir, "flow_dy.png")
+        mpimg.imsave(dy_path, obs[:, :, 4], cmap="gray")
+
+        # Save HSV color-coded flow visualization
+        hsv_flow = self._flow_to_hsv(obs[:, :, 3], obs[:, :, 4])
+        hsv_path = os.path.join(out_dir, "flow_hsv.png")
+        mpimg.imsave(hsv_path, hsv_flow)
+
+        # Save side-by-side: L channel + HSV flow
+        l_3ch = np.repeat(obs[:, :, 2:3], 3, axis=-1)
+        side_by_side = np.concatenate([l_3ch, hsv_flow], axis=1)
+        sb_path = os.path.join(out_dir, "lightness_vs_flow.png")
+        mpimg.imsave(sb_path, side_by_side)
+
+        print(f"\n  Saved: {os.path.abspath(h_path)}")
+        print(f"  Saved: {os.path.abspath(s_path)}")
+        print(f"  Saved: {os.path.abspath(l_path)}")
+        print(f"  Saved: {os.path.abspath(dx_path)}")
+        print(f"  Saved: {os.path.abspath(dy_path)}")
+        print(f"  Saved: {os.path.abspath(hsv_path)}")
+        print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env.close()
+
+    def test_optical_flow_grey_snapshot(self):
+        """Save greyscale + optical flow channels as individual PNGs and HSV visualization."""
+        out_dir = os.path.join(IMAGES_DIR, "optical_flow_grey")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env = GreyscaleObservation(env)
+        env = SkipFrame(env, skip=SKIP, channels=1)
+        env = OpticalFlowObservation(env, skip=SKIP, channels=1)
+
+        env.reset(seed=42)
+        for _ in range(4):
+            env.step(3)
+        for _ in range(2):
+            env.step(0)
+        obs, _, _, _, _ = env.step(3)
+
+        grey_path = os.path.join(out_dir, "greyscale.png")
+        mpimg.imsave(grey_path, obs[:, :, 0], cmap="gray")
+
+        dx_path = os.path.join(out_dir, "flow_dx.png")
+        mpimg.imsave(dx_path, obs[:, :, 1], cmap="gray")
+
+        dy_path = os.path.join(out_dir, "flow_dy.png")
+        mpimg.imsave(dy_path, obs[:, :, 2], cmap="gray")
+
+        # Save HSV color-coded flow visualization
+        hsv_flow = self._flow_to_hsv(obs[:, :, 1], obs[:, :, 2])
+        hsv_path = os.path.join(out_dir, "flow_hsv.png")
+        mpimg.imsave(hsv_path, hsv_flow)
+
+        # Save side-by-side: greyscale + HSV flow
+        grey_3ch = np.repeat(obs[:, :, 0:1], 3, axis=-1)
+        side_by_side = np.concatenate([grey_3ch, hsv_flow], axis=1)
+        sb_path = os.path.join(out_dir, "greyscale_vs_flow.png")
+        mpimg.imsave(sb_path, side_by_side)
+
+        print(f"\n  Saved: {os.path.abspath(grey_path)}")
+        print(f"  Saved: {os.path.abspath(dx_path)}")
+        print(f"  Saved: {os.path.abspath(dy_path)}")
+        print(f"  Saved: {os.path.abspath(hsv_path)}")
+        print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        env.close()
+
+    def test_optical_flow_sequence(self):
+        """Save flow across multiple steps to see motion over time."""
+        out_dir = os.path.join(IMAGES_DIR, "optical_flow_sequence")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env = GreyscaleObservation(env)
+        env = SkipFrame(env, skip=SKIP, channels=1)
+        env = OpticalFlowObservation(env, skip=SKIP, channels=1)
+
+        env.reset(seed=42)
+        # Warm up with gas
+        for _ in range(4):
+            env.step(3)
+
+        # Capture 6 frames of driving
+        for step in range(6):
+            obs, _, _, _, _ = env.step(3)  # gas
+
+            grey_3ch = np.repeat(obs[:, :, 0:1], 3, axis=-1)
+            hsv_flow = self._flow_to_hsv(obs[:, :, 1], obs[:, :, 2])
+            combined = np.concatenate([grey_3ch, hsv_flow], axis=1)
+
+            path = os.path.join(out_dir, f"step_{step}.png")
+            mpimg.imsave(path, combined)
+            print(f"  Saved: {os.path.abspath(path)}")
+
+        env.close()
