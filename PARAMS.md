@@ -1,6 +1,6 @@
 # Parameters file
 
-Parameters file used for setting up the eval / training enviroment is written in yaml format.
+Parameters file used for setting up the eval / training environment is written in yaml format.
 
 ## Expected structure
 

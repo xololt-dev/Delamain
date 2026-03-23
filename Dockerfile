@@ -15,7 +15,7 @@ COPY delamain_req.txt /Delamain/
 RUN pip3 install -r /Delamain/delamain_req.txt
 
 COPY alternative_models /Delamain/alternative_models
-COPY enviroment /Delamain/enviroment
+COPY environment /Delamain/environment
 COPY tests /Delamain/tests
 COPY main.py /Delamain/
 COPY training_params.yaml /Delamain/

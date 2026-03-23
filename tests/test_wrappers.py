@@ -5,25 +5,22 @@ import numpy as np
 import cv2
 import matplotlib.image as mpimg
 
-from enviroment.wrappers.SkipFrame import SkipFrame
-from enviroment.wrappers.SkipFrameVec import SkipFrameVec
-from enviroment.wrappers.GreyscaleObservation import GreyscaleObservation
-from enviroment.wrappers.CropObservation import CropObservation
-from enviroment.wrappers.CropObservationVec import CropObservationVec
-from enviroment.wrappers.HSLObservation import HSLObservation
-from enviroment.wrappers.GreyscaleObservationVec import GreyscaleObservationVec
-from enviroment.wrappers.HSLObservationVec import HSLObservationVec
-from enviroment.wrappers.GaussianAntialiasObservation import (
+from environment.wrappers import (
+    HSLObservation,
+    HSLObservationVec,
+    GreyscaleObservation,
+    GreyscaleObservationVec,
+    CropObservation,
+    CropObservationVec,
+    SkipFrame,
+    SkipFrameVec,
     GaussianAntialiasObservation,
-)
-from enviroment.wrappers.GaussianAntialiasObservationVec import (
     GaussianAntialiasObservationVec,
+    EdgeAntialiasObservation,
+    EdgeAntialiasObservationVec,
+    OpticalFlowObservation,
+    OpticalFlowObservationVec,
 )
-from enviroment.wrappers.EdgeAntialiasObservation import EdgeAntialiasObservation
-from enviroment.wrappers.EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
-from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
-from enviroment.wrappers.OpticalFlowObservationVec import OpticalFlowObservationVec
-
 
 SKIP = 4
 
@@ -1527,8 +1524,8 @@ class TestCropVisualSnapshot:
         # Save original with crop region outlined (red border)
         outlined = raw.copy()
         crop_left = (96 - 84) // 2  # 6
-        crop_right = 96 - 6         # 90
-        crop_bottom = 96 - 84       # 12
+        crop_right = 96 - 6  # 90
+        crop_bottom = 96 - 84  # 12
         # Top edge
         outlined[0, crop_left:crop_right] = [255, 0, 0]
         # Bottom edge
@@ -1538,7 +1535,9 @@ class TestCropVisualSnapshot:
         # Right edge
         outlined[:84, crop_right - 1] = [255, 0, 0]
         # Bottom bar region (the removed area) made semi-transparent red
-        outlined[84:, :] = outlined[84:, :] // 2 + np.array([128, 0, 0], dtype=np.uint8) // 2
+        outlined[84:, :] = (
+            outlined[84:, :] // 2 + np.array([128, 0, 0], dtype=np.uint8) // 2
+        )
         outlined_path = os.path.join(out_dir, "original_with_crop_outline.png")
         mpimg.imsave(outlined_path, outlined)
 

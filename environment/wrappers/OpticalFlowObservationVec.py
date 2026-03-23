@@ -3,7 +3,7 @@ import numpy as np
 from gymnasium.spaces import Box
 from typing import Any
 
-from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
+from environment.wrappers.OpticalFlowObservation import OpticalFlowObservation
 
 
 class OpticalFlowObservationVec(gym.vector.VectorWrapper):

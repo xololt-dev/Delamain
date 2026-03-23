@@ -11,18 +11,25 @@ import time
 
 from functools import partial
 
-from enviroment.AgentDDQN import AgentDDQN
-from enviroment.Agent import Agent
-from enviroment.AgentPPO import AgentPPO
-from enviroment.Algorithms import Algorithms
-from enviroment.wrappers.HSLObservation import HSLObservation
-from enviroment.wrappers.HSLObservationVec import HSLObservationVec
-from enviroment.wrappers.CropObservation import CropObservation
-from enviroment.wrappers.CropObservationVec import CropObservationVec
-from enviroment.wrappers.SkipFrame import SkipFrame
-from enviroment.wrappers.SkipFrameVec import SkipFrameVec
-from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
-from enviroment.wrappers.OpticalFlowObservationVec import OpticalFlowObservationVec
+from environment.AgentDDQN import AgentDDQN
+from environment.Agent import Agent
+from environment.AgentPPO import AgentPPO
+from environment.Algorithms import Algorithms
+from environment.Antialiasing import Antialiasing
+from environment.Observations import Observations
+
+from environment.wrappers import (
+    HSLObservation,
+    HSLObservationVec,
+    GreyscaleObservation,
+    GreyscaleObservationVec,
+    CropObservation,
+    CropObservationVec,
+    SkipFrame,
+    SkipFrameVec,
+    OpticalFlowObservation,
+    OpticalFlowObservationVec,
+)
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
@@ -36,7 +43,7 @@ if is_ipython:
 
 
 class TrainingGround:
-    ENVIROMENT = "CarRacing-v3"
+    ENVIRONMENT = "CarRacing-v3"
     VIDEO_DIR = "training/video"
     MODELS_DIR = "training/saved_models"
     PARAMS_FILE = "training_params.yaml"
@@ -79,7 +86,7 @@ class TrainingGround:
 
         if self.vec:
             self.env = gym.make_vec(
-                self.ENVIROMENT,
+                self.ENVIRONMENT,
                 num_envs=self.envs_num,
                 vectorization_mode=gym.VectorizeMode.ASYNC,
                 # vector_kwargs={
@@ -104,7 +111,7 @@ class TrainingGround:
                 )
         else:
             self.env = gym.make(
-                self.ENVIROMENT,
+                self.ENVIRONMENT,
                 continuous=False,
                 render_mode="rgb_array",
                 domain_randomize=yamlValues["env"].get("random_colors", False),
@@ -216,8 +223,12 @@ class TrainingGround:
             case "Delamain_2_6":
                 in_channels = self._get_input_channels()
                 if self.algorithm == Algorithms.PPO:
-                    return partial(Delamain_2_6_PPO, in_channels=in_channels, input_size=input_size)
-                return partial(Delamain_2_6, in_channels=in_channels, input_size=input_size)
+                    return partial(
+                        Delamain_2_6_PPO, in_channels=in_channels, input_size=input_size
+                    )
+                return partial(
+                    Delamain_2_6, in_channels=in_channels, input_size=input_size
+                )
             case _:
                 return partial(Delamain, input_size=input_size)
 
@@ -589,7 +600,7 @@ class TrainingGround:
         plt.ioff()
         plt.show()
 
-    # AFAIK disabled auto-reset steps through not-to-be-reset enviroments with ? action, which makes this approach... wrong in a different way compared to train_vec
+    # AFAIK disabled auto-reset steps through not-to-be-reset environments with ? action, which makes this approach... wrong in a different way compared to train_vec
     def train_vec_2(self):
         assert (
             self.algorithm == Algorithms.PPO

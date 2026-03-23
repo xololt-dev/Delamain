@@ -8,7 +8,7 @@ from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorSt
 from tensordict import TensorDict
 
 
-class Agent:
+class AgentDDQN:
     SAVE_DIR = "training/saved_models/"
     LOG_DIR = "training/logs/"
 
@@ -188,16 +188,18 @@ class Agent:
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
         with torch.no_grad():
+            next_actions = torch.argmax(self.target_net(new_states), axis=1)
             tar_action_values = self.policy_net(new_states)
         td_tar = (
             rewards
-            + (1 - terminateds.float()) * self.gamma * tar_action_values.max(1)[0]
+            + (1 - terminateds.float())
+            * self.gamma
+            * tar_action_values[np.arange(batch_size), next_actions]
         )
 
         loss = self.loss_fn(td_est, td_tar)
         self.optimizer.zero_grad()
         loss.backward()
-        # torch.nn.utils.clip_grad_value_(self.target_net.parameters(), 1.0)
         self.optimizer.step()
         self.scheduler.step()
         loss = loss.detach().cpu().item()
@@ -236,7 +238,6 @@ class Agent:
         # self.buffer.dumps(buffer_save_path)
 
         print(f"Model saved to {save_path} at step {self.act_taken}")
-        # print(f"Replay buffer saved to {buffer_save_path}")
 
     def load(self, load_dir: str, model_name: str):
         """

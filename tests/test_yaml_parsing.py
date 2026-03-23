@@ -3,10 +3,11 @@ import yaml
 import textwrap
 
 from TrainingGround import TrainingGround
-from enviroment.Algorithms import Algorithms
+from environment.Algorithms import Algorithms
 
 
-FULL_YAML = textwrap.dedent("""\
+FULL_YAML = textwrap.dedent(
+    """\
     model:
       class_name: "Delamain_2_6"
       file_name:
@@ -41,7 +42,8 @@ FULL_YAML = textwrap.dedent("""\
       when2eval: 25000
       when2log: 20
       report_type: "text"
-""")
+"""
+)
 
 
 def _write_yaml(tmp_path, content, filename="test.yaml"):

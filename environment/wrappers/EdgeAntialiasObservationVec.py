@@ -2,7 +2,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
 
-from enviroment.wrappers.EdgeAntialiasObservation import EdgeAntialiasObservation
+from environment.wrappers.EdgeAntialiasObservation import EdgeAntialiasObservation
 
 
 class EdgeAntialiasObservationVec(gym.vector.VectorWrapper):

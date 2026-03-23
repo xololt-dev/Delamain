@@ -4,9 +4,9 @@ import csv
 import numpy as np
 import torch
 
-from enviroment.Agent import Agent
-from enviroment.AgentDDQN import AgentDDQN
-from enviroment.AgentPPO import AgentPPO
+from environment.Agent import Agent
+from environment.AgentDDQN import AgentDDQN
+from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 from tests.helpers import DEVICES, make_dqn_agent, make_ddqn_agent, make_ppo_agent
 
@@ -264,22 +264,26 @@ class TestAgentDDQNSpecific:
 
         # target_net selects actions, policy_net evaluates them
         expected_next_actions = torch.argmax(target_values, dim=1)
-        expected_td_targets = rewards + (
-            1 - terminateds.float()
-        ) * ddqn_agent.gamma * policy_values[
-            np.arange(batch_size), expected_next_actions
-        ]
+        expected_td_targets = (
+            rewards
+            + (1 - terminateds.float())
+            * ddqn_agent.gamma
+            * policy_values[np.arange(batch_size), expected_next_actions]
+        )
 
         td_est, loss = ddqn_agent.update_net(batch_size=batch_size)
         assert np.isfinite(loss)
 
         # Verify DDQN does NOT use policy_net.max (that's plain DQN)
-        dqn_style_target = rewards + (
-            1 - terminateds.float()
-        ) * ddqn_agent.gamma * policy_values.max(1)[0]
+        dqn_style_target = (
+            rewards
+            + (1 - terminateds.float()) * ddqn_agent.gamma * policy_values.max(1)[0]
+        )
         # The DDQN target and DQN target should differ for at least some samples
         # (unless all actions happen to be the same under both nets)
-        assert not torch.allclose(expected_td_targets, dqn_style_target, atol=1e-6) or True
+        assert (
+            not torch.allclose(expected_td_targets, dqn_style_target, atol=1e-6) or True
+        )
         # Core assertion: DDQN uses target_net for selection
         assert torch.equal(
             expected_next_actions,
@@ -435,7 +439,9 @@ class TestAgentSaveLoad:
         saved_file = [f for f in os.listdir(tmp_save_dir) if "test_sched" in f][0]
         agent2.load(tmp_save_dir, saved_file)
 
-        assert agent2.scheduler.state_dict()["_step_count"] == saved_sched["_step_count"]
+        assert (
+            agent2.scheduler.state_dict()["_step_count"] == saved_sched["_step_count"]
+        )
 
 
 class TestAgentWriteLog:
@@ -458,7 +464,13 @@ class TestAgentWriteLog:
         lrs = [0.001, 0.001]
 
         agent.write_log(
-            dates, times, rewards, lengths, losses, epsilons, lrs,
+            dates,
+            times,
+            rewards,
+            lengths,
+            losses,
+            epsilons,
+            lrs,
             log_filename="test_log.csv",
         )
 
@@ -493,8 +505,15 @@ class TestAgentWriteLog:
         fuel = [12.5]
 
         agent.write_log(
-            dates, times, rewards, lengths, losses, epsilons, lrs,
-            fuel_efficiency_list=fuel, log_filename="test_fuel.csv",
+            dates,
+            times,
+            rewards,
+            lengths,
+            losses,
+            epsilons,
+            lrs,
+            fuel_efficiency_list=fuel,
+            log_filename="test_fuel.csv",
         )
 
         log_path = os.path.join(tmp_save_dir, "test_fuel.csv")
@@ -733,7 +752,13 @@ class TestPPOLog:
         lrs = [0.0003]
 
         ppo_agent.write_log(
-            dates, times, rewards, lengths, losses, epsilons, lrs,
+            dates,
+            times,
+            rewards,
+            lengths,
+            losses,
+            epsilons,
+            lrs,
             log_filename="ppo_log.csv",
         )
         log_path = os.path.join(tmp_save_dir, "ppo_log.csv")

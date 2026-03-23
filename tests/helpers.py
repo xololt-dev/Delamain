@@ -1,9 +1,10 @@
 """Shared test utilities — not a conftest (pytest doesn't auto-import this)."""
+
 import torch
 
-from enviroment.Agent import Agent
-from enviroment.AgentDDQN import AgentDDQN
-from enviroment.AgentPPO import AgentPPO
+from environment.Agent import Agent
+from environment.AgentDDQN import AgentDDQN
+from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 
 

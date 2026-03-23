@@ -1,4 +1,4 @@
-from enviroment.Algorithms import Algorithms
+from environment.Algorithms import Algorithms
 
 
 class TestAlgorithms:

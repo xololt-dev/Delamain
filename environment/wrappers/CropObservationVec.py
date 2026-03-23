@@ -3,7 +3,7 @@ import numpy as np
 from gymnasium.spaces import Box
 from typing import Any
 
-from enviroment.wrappers.CropObservation import CropObservation
+from environment.wrappers.CropObservation import CropObservation
 
 
 class CropObservationVec(gym.vector.VectorWrapper):
@@ -31,9 +31,9 @@ class CropObservationVec(gym.vector.VectorWrapper):
         h, w = env.observation_space.shape[1:3]
         c = env.observation_space.shape[3]
 
-        assert target_h <= h and target_w <= w, (
-            f"Target size ({target_h}, {target_w}) exceeds observation size ({h}, {w})"
-        )
+        assert (
+            target_h <= h and target_w <= w
+        ), f"Target size ({target_h}, {target_w}) exceeds observation size ({h}, {w})"
 
         self._crop_top = 0
         self._crop_bottom = h - target_h

@@ -2,10 +2,10 @@ import pytest
 from functools import partial
 
 from TrainingGround import TrainingGround
-from enviroment.Algorithms import Algorithms
-from enviroment.Agent import Agent
-from enviroment.AgentDDQN import AgentDDQN
-from enviroment.AgentPPO import AgentPPO
+from environment.Algorithms import Algorithms
+from environment.Agent import Agent
+from environment.AgentDDQN import AgentDDQN
+from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1

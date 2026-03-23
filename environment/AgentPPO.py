@@ -127,6 +127,7 @@ class AgentPPO:
 
         if self.vec:
             # return self.update_net_vec_whole(batch_size)
+            # return self.update_net_vec_gae(batch_size)
             return self.update_net_vec(batch_size)
         else:
             return self.update_net_scalar(batch_size)
@@ -372,7 +373,128 @@ class AgentPPO:
         final_loss = final_loss.mean().cpu()
 
         return None, final_loss
-    
+
+    def update_net_vec_gae(self, batch_size: int = 64):
+        """
+        Updates the Actor and Critic networks using collected vectorized rollouts.
+        """
+        self.n_updates += 1
+
+        if len(self.buffer) == 0:
+            return None, torch.tensor(0.0)
+
+        # Stack into shape [T, n, ...] where T is steps per update and n is num envs
+        states = torch.stack([x[0] for x in self.buffer]).to(self.device)
+        actions = torch.stack([x[1] for x in self.buffer]).to(self.device)
+        old_log_probs = torch.stack([x[2] for x in self.buffer]).to(self.device)
+        rewards = torch.stack([x[3] for x in self.buffer]).to(self.device)
+        terminateds = torch.stack([x[4] for x in self.buffer]).to(self.device)
+
+        T, n = rewards.shape[0], rewards.shape[1]
+
+        # --- THE GOLD STANDARD PPO ADVANTAGE CALCULATION ---
+
+        # 1. Get Critic values for the entire sequence first
+        with torch.no_grad():
+            logits, values = self.actor(states)
+            values = values.squeeze()
+
+        # 2. Setup GAE tracking tensors
+        advantages = torch.zeros_like(rewards).to(self.device)
+        last_gae_lam = torch.zeros(n, dtype=torch.float32, device=self.device)
+
+        # Usually defined in __init__, lambda controls the variance/bias tradeoff (0.95 is standard)
+        gae_lambda = 0.95
+
+        for t in reversed(range(T)):
+            if t == T - 1:
+                # BOOTSTRAPPING: At the very end of the rollout, if the env didn't crash,
+                # we don't have the "next" state. A common approximation is to just
+                # use the current state's value as a guess for the future.
+                next_nonterminal = (~terminateds[t]).float()
+                next_values = values[t]  # Bootstrapping happens here!
+            else:
+                next_nonterminal = (~terminateds[t]).float()
+                next_values = values[t + 1]
+
+            # Calculate the Temporal Difference Error (Delta)
+            delta = rewards[t] + self.gamma * next_values * next_nonterminal - values[t]
+
+            # Calculate GAE
+            advantages[t] = last_gae_lam = (
+                delta + self.gamma * gae_lambda * next_nonterminal * last_gae_lam
+            )
+
+        # The target return for the Critic to learn from is simply Advantage + Value
+        returns = advantages + values
+
+        # Flatten tensors as before
+        states = states.view(T * n, *states.shape[2:])
+        actions = actions.view(T * n)
+        old_log_probs = old_log_probs.view(T * n)
+        returns = returns.view(T * n)
+        advantages = advantages.view(T * n)  # We also flatten advantages
+
+        # In standard PPO, we normalize ADVANTAGES, not returns
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
+
+        final_loss = None
+        total_batch_size = T * n
+
+        # Fallback if batch_size isn't passed or is somehow larger than the rollout
+        if batch_size is None or batch_size > total_batch_size:
+            batch_size = 64
+
+        # Optimize policy for K epochs over the flattened batch using MINI-BATCHES
+        for _ in range(self.K_epochs):
+            # Shuffle indices for this epoch
+            indices = torch.randperm(total_batch_size).to(self.device)
+
+            for start_idx in range(0, total_batch_size, batch_size):
+                end_idx = start_idx + batch_size
+                mb_indices = indices[start_idx:end_idx]
+
+                # Extract mini-batch
+                mb_states = states[mb_indices]
+                mb_actions = actions[mb_indices]
+                mb_old_log_probs = old_log_probs[mb_indices]
+                mb_returns = returns[mb_indices]
+                mb_advantages = advantages[mb_indices]
+
+                # Run network on MINI-BATCH only
+                logits, state_values = self.actor(mb_states)
+                dist = Categorical(logits=logits)
+                log_probs = dist.log_prob(mb_actions)
+                entropy = dist.entropy()
+
+                # state_values = self.critic_head(self.critic_base(mb_states)).squeeze()
+                state_values = state_values.squeeze()
+
+                ratios = torch.exp(log_probs - mb_old_log_probs)
+
+                surr1 = ratios * mb_advantages
+                surr2 = (
+                    torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip)
+                    * mb_advantages
+                )
+
+                actor_loss = -torch.min(surr1, surr2).mean()
+                critic_loss = self.loss_fn(state_values, mb_returns)
+
+                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                if final_loss == None:
+                    final_loss = loss.detach().view(1)
+                else:
+                    final_loss = torch.cat((final_loss, loss.detach().view(1)))
+
+        self.scheduler.step()
+        self.buffer.clear()  # Clear rollout buffer after update
+        final_loss = final_loss.mean().cpu()
+
         return None, final_loss
 
     def save(self, save_dir: str, save_name: str):

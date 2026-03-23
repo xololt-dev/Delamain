@@ -2,7 +2,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
 
-from enviroment.wrappers.GaussianAntialiasObservation import (
+from environment.wrappers.GaussianAntialiasObservation import (
     GaussianAntialiasObservation,
 )
 
