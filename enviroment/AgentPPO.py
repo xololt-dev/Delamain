@@ -393,7 +393,7 @@ class AgentPPO:
 
     def load(self, load_dir: str, model_name: str):
         save_path = os.path.join(load_dir, model_name)
-        loaded_model = torch.load(save_path)
+        loaded_model = torch.load(save_path, map_location=self.device)
 
         self.actor.load_state_dict(loaded_model["actor_state_dict"])
         self.optimizer.load_state_dict(loaded_model["optimizer_state_dict"])

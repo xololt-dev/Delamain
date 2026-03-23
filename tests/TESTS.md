@@ -15,5 +15,17 @@ python -m pytest tests/test_wrappers.py::TestGaussianAntialiasObservation tests/
 ## Optical flow visual snapshots (greyscale, hsl, sequence)
 python -m pytest tests/test_wrappers.py::TestOpticalFlowVisualSnapshots -v -s
 
-## Full test suite
+## YAML parsing tests
+python -m pytest tests/test_yaml_parsing.py -v
+
+## Agent save/load tests
+python -m pytest tests/test_agents.py::TestAgentSaveLoad tests/test_agents.py::TestPPOSaveLoad -v
+
+## Checkpoint smoke tests (validate existing .pt files on disk)
+python -m pytest -m checkpoint -v
+
+## Full test suite (excludes checkpoint smoke tests)
 python -m pytest tests/ -v
+
+## Full test suite including checkpoint smoke tests
+python -m pytest tests/ -v -m ""

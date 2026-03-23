@@ -250,7 +250,7 @@ class Agent:
         save_path = os.path.join(load_dir, model_name)
         # buffer_save_path = os.path.join(load_dir, f"buffer_{self.act_taken}.pt") # This needs to be fixed to load the correct buffer
 
-        loaded_model = torch.load(save_path)
+        loaded_model = torch.load(save_path, map_location=self.device)
         upd_net_param = loaded_model["upd_model_state_dict"]
         frz_net_param = loaded_model["frz_model_state_dict"]
         opt_param = loaded_model["optimizer_state_dict"]
