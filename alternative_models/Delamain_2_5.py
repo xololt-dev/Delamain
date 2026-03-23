@@ -6,7 +6,7 @@ from .DelamainBase import DelamainBase
 
 
 class Delamain_2_5(DelamainBase):
-    def __init__(self):
+    def __init__(self, input_size=96):
         super().__init__()
         self.conv1 = nn.Conv2d(
             in_channels=12,
@@ -25,20 +25,27 @@ class Delamain_2_5(DelamainBase):
             stride=2,
             dtype=torch.float32,
         )
-        self.fc1 = nn.Linear(32 * 21 * 21, 256, dtype=torch.float32)
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, 12, input_size, input_size, dtype=torch.float32)
+            dummy = self._forward_conv(dummy)
+            self._fc_input_size = dummy.numel()
+
+        self.fc1 = nn.Linear(self._fc_input_size, 256, dtype=torch.float32)
         self.fc2 = nn.Linear(256, 5, dtype=torch.float32)
+
+    def _forward_conv(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Permute the dimensions to have channels first (batch, channels, height, width)
         x = x.permute(0, 3, 1, 2)
         x = x.float() / 255.0
 
-        # 47x47
-        x = F.relu(self.conv1(x))
-        # 44x44
-        x = F.relu(self.conv2(x))
-        # 21x21
-        x = F.relu(self.conv3(x))
+        x = self._forward_conv(x)
 
         x = torch.flatten(x, 1)  # flatten all dimensions except batch
         x = F.relu(self.fc1(x))
@@ -52,11 +59,11 @@ class Delamain_2_5(DelamainBase):
         return 4
 
 class Delamain_2_5_PPO(DelamainBase):
-    def __init__(self):
+    def __init__(self, input_size=96):
         super().__init__()
-        self.cnn = Delamain_2_5_PPO_Head()
-        self.actor = Delamain_2_5_Actor()
-        self.critc = Delamain_2_5_Critic()
+        self.cnn = Delamain_2_5_PPO_Head(input_size=input_size)
+        self.actor = Delamain_2_5_Actor(fc_input_size=self.cnn._fc_input_size)
+        self.critc = Delamain_2_5_Critic(fc_input_size=self.cnn._fc_input_size)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.cnn(x)
@@ -74,8 +81,8 @@ class Delamain_2_5_PPO(DelamainBase):
 
 
 class Delamain_2_5_PPO_Head(Delamain_2_5):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, input_size=96):
+        super().__init__(input_size=input_size)
         del self.fc1
         del self.fc2
 
@@ -84,12 +91,7 @@ class Delamain_2_5_PPO_Head(Delamain_2_5):
         x = x.permute(0, 3, 1, 2)
         x = x.float() / 255.0
 
-        # 47x47
-        x = F.relu(self.conv1(x))
-        # 44x44
-        x = F.relu(self.conv2(x))
-        # 21x21
-        x = F.relu(self.conv3(x))
+        x = self._forward_conv(x)
 
         x = torch.flatten(x, 1)  # flatten all dimensions except batch
 
@@ -103,9 +105,9 @@ class Delamain_2_5_PPO_Head(Delamain_2_5):
 
 
 class Delamain_2_5_Actor(DelamainBase):
-    def __init__(self):
+    def __init__(self, fc_input_size=32 * 21 * 21):
         super().__init__()
-        self.fc3 = nn.Linear(32 * 21 * 21, 256, dtype=torch.float32)
+        self.fc3 = nn.Linear(fc_input_size, 256, dtype=torch.float32)
         self.fc4 = nn.Linear(256, 5, dtype=torch.float32)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -116,9 +118,9 @@ class Delamain_2_5_Actor(DelamainBase):
 
 
 class Delamain_2_5_Critic(DelamainBase):
-    def __init__(self):
+    def __init__(self, fc_input_size=32 * 21 * 21):
         super().__init__()
-        self.fc3 = nn.Linear(32 * 21 * 21, 256, dtype=torch.float32)
+        self.fc3 = nn.Linear(fc_input_size, 256, dtype=torch.float32)
         self.fc4 = nn.Linear(256, 1, dtype=torch.float32)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

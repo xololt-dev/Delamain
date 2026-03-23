@@ -48,6 +48,30 @@ def sample_state():
     return torch.randint(0, 256, (2, 96, 96, 12), dtype=torch.uint8)
 
 
+@pytest.fixture
+def sample_state_raw_84():
+    """(batch=2, 84, 84, 3) uint8 tensor — input for Delamain with crop."""
+    return torch.randint(0, 256, (2, 84, 84, 3), dtype=torch.uint8)
+
+
+@pytest.fixture
+def sample_state_d2_84():
+    """(batch=2, 84, 84, 6) uint8 tensor — input for Delamain_2 with crop."""
+    return torch.randint(0, 256, (2, 84, 84, 6), dtype=torch.uint8)
+
+
+@pytest.fixture
+def sample_state_d21_84():
+    """(batch=2, 84, 84, 12) uint8 tensor — input for Delamain_2_1 with crop."""
+    return torch.randint(0, 256, (2, 84, 84, 12), dtype=torch.uint8)
+
+
+@pytest.fixture
+def sample_state_84():
+    """(batch=2, 84, 84, 12) uint8 tensor — input for Delamain_2_5 with crop."""
+    return torch.randint(0, 256, (2, 84, 84, 12), dtype=torch.uint8)
+
+
 # --- Agent fixtures (parametrized by device) ---
 
 

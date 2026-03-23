@@ -1,4 +1,5 @@
 import pytest
+from functools import partial
 
 from TrainingGround import TrainingGround
 from enviroment.Algorithms import Algorithms
@@ -9,6 +10,7 @@ from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
+from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
 
 
 @pytest.fixture
@@ -17,37 +19,81 @@ def tg():
     # We need to bypass __init__ since it reads YAML and creates env
     tg = TrainingGround.__new__(TrainingGround)
     tg.algorithm = Algorithms.DQN
+    tg._skip_frames = 4
+    tg._optical_flow = False
     return tg
 
 
 class TestParseClassName:
     def test_delamain(self, tg):
         tg.algorithm = Algorithms.DQN
-        assert tg.parse_class_name("Delamain") is Delamain
+        result = tg.parse_class_name("Delamain")
+        assert isinstance(result, partial)
+        assert result.func is Delamain
 
     def test_delamain_2(self, tg):
-        assert tg.parse_class_name("Delamain_2") is Delamain_2
+        result = tg.parse_class_name("Delamain_2")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2
 
     def test_delamain_2_1(self, tg):
-        assert tg.parse_class_name("Delamain_2_1") is Delamain_2_1
+        result = tg.parse_class_name("Delamain_2_1")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_1
 
     def test_delamain_2_5_dqn(self, tg):
         tg.algorithm = Algorithms.DQN
-        assert tg.parse_class_name("Delamain_2_5") is Delamain_2_5
+        result = tg.parse_class_name("Delamain_2_5")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_5
 
     def test_delamain_2_5_ddqn(self, tg):
         tg.algorithm = Algorithms.DDQN
-        assert tg.parse_class_name("Delamain_2_5") is Delamain_2_5
+        result = tg.parse_class_name("Delamain_2_5")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_5
 
     def test_delamain_2_5_ppo(self, tg):
         tg.algorithm = Algorithms.PPO
-        assert tg.parse_class_name("Delamain_2_5") is Delamain_2_5_PPO
+        result = tg.parse_class_name("Delamain_2_5")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_5_PPO
+
+    def test_delamain_2_6_dqn(self, tg):
+        tg.algorithm = Algorithms.DQN
+        result = tg.parse_class_name("Delamain_2_6")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_6
+
+    def test_delamain_2_6_ddqn(self, tg):
+        tg.algorithm = Algorithms.DDQN
+        result = tg.parse_class_name("Delamain_2_6")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_6
+
+    def test_delamain_2_6_ppo(self, tg):
+        tg.algorithm = Algorithms.PPO
+        result = tg.parse_class_name("Delamain_2_6")
+        assert isinstance(result, partial)
+        assert result.func is Delamain_2_6_PPO
 
     def test_unknown_returns_delamain(self, tg):
-        assert tg.parse_class_name("NonExistent") is Delamain
+        result = tg.parse_class_name("NonExistent")
+        assert isinstance(result, partial)
+        assert result.func is Delamain
 
     def test_none_returns_delamain(self, tg):
-        assert tg.parse_class_name(None) is Delamain
+        result = tg.parse_class_name(None)
+        assert isinstance(result, partial)
+        assert result.func is Delamain
+
+    def test_default_input_size(self, tg):
+        result = tg.parse_class_name("Delamain")
+        assert result.keywords.get("input_size") == 96
+
+    def test_custom_input_size(self, tg):
+        result = tg.parse_class_name("Delamain", input_size=84)
+        assert result.keywords.get("input_size") == 84
 
 
 class TestParseAlgorithm:

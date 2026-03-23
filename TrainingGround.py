@@ -17,6 +17,8 @@ from enviroment.AgentPPO import AgentPPO
 from enviroment.Algorithms import Algorithms
 from enviroment.wrappers.HSLObservation import HSLObservation
 from enviroment.wrappers.HSLObservationVec import HSLObservationVec
+from enviroment.wrappers.CropObservation import CropObservation
+from enviroment.wrappers.CropObservationVec import CropObservationVec
 from enviroment.wrappers.SkipFrame import SkipFrame
 from enviroment.wrappers.SkipFrameVec import SkipFrameVec
 from enviroment.wrappers.OpticalFlowObservation import OpticalFlowObservation
@@ -73,6 +75,7 @@ class TrainingGround:
         self.envs_num: int = yamlValues["env"].get("envs_num", 1)
         self._skip_frames: int = yamlValues["env"].get("skip_frames", 4)
         self._optical_flow: bool = yamlValues["env"].get("optical_flow", False)
+        self._crop_size: int | None = yamlValues["env"].get("crop_size", None)
 
         if self.vec:
             self.env = gym.make_vec(
@@ -87,6 +90,8 @@ class TrainingGround:
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
             self.env = HSLObservationVec(self.env)
+            if self._crop_size is not None:
+                self.env = CropObservationVec(self.env, target_h=self._crop_size, target_w=self._crop_size)
             self.env = SkipFrameVec(
                 self.env,
                 skip=self._skip_frames,
@@ -106,6 +111,8 @@ class TrainingGround:
             )
 
             self.env = HSLObservation(self.env)
+            if self._crop_size is not None:
+                self.env = CropObservation(self.env, target_h=self._crop_size, target_w=self._crop_size)
             self.env = SkipFrame(self.env, skip=self._skip_frames)
             if self._optical_flow:
                 self.env = OpticalFlowObservation(
@@ -131,6 +138,7 @@ class TrainingGround:
         action_n = (
             self.env.single_action_space.n if self.vec else self.env.action_space.n
         )
+        input_size = self.state.shape[1] if self.vec else self.state.shape[0]
         driver_class = self.parse_algorithm(self.algorithm)
 
         if yamlValues["env"]["mode"] == "eval":
@@ -141,7 +149,7 @@ class TrainingGround:
             self.driver = driver_class(
                 self.state.shape,
                 action_n,
-                self.parse_class_name(yamlValues["model"]["class_name"]),
+                self.parse_class_name(yamlValues["model"]["class_name"], input_size),
                 buffer_size=0,
                 **{k: v for k, v in agent_args.items() if v is not None},
             )
@@ -166,7 +174,7 @@ class TrainingGround:
             self.driver = driver_class(
                 self.state.shape,
                 action_n,
-                self.parse_class_name(yamlValues["model"]["class_name"]),
+                self.parse_class_name(yamlValues["model"]["class_name"], input_size),
                 **{k: v for k, v in agent_args.items() if v is not None},
             )
             if yamlValues["env"]["mode"]:
@@ -193,25 +201,25 @@ class TrainingGround:
             return base_channels + 2  # HSL channels + dx + dy
         return skip_frames * base_channels
 
-    def parse_class_name(self, class_name: str | None):
+    def parse_class_name(self, class_name: str | None, input_size: int = 96):
         match class_name:
             case "Delamain":
-                return Delamain
+                return partial(Delamain, input_size=input_size)
             case "Delamain_2":
-                return Delamain_2
+                return partial(Delamain_2, input_size=input_size)
             case "Delamain_2_1":
-                return Delamain_2_1
+                return partial(Delamain_2_1, input_size=input_size)
             case "Delamain_2_5":
                 if self.algorithm == Algorithms.PPO:
-                    return Delamain_2_5_PPO
-                return Delamain_2_5
+                    return partial(Delamain_2_5_PPO, input_size=input_size)
+                return partial(Delamain_2_5, input_size=input_size)
             case "Delamain_2_6":
                 in_channels = self._get_input_channels()
                 if self.algorithm == Algorithms.PPO:
-                    return partial(Delamain_2_6_PPO, in_channels=in_channels)
-                return partial(Delamain_2_6, in_channels=in_channels)
+                    return partial(Delamain_2_6_PPO, in_channels=in_channels, input_size=input_size)
+                return partial(Delamain_2_6, in_channels=in_channels, input_size=input_size)
             case _:
-                return Delamain
+                return partial(Delamain, input_size=input_size)
 
     def parse_algorithm(
         self, algorithm: Algorithms | None

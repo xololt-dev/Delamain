@@ -20,11 +20,13 @@ class SkipFrameVec(gym.vector.VectorWrapper):
         super().__init__(env)
         self._skip = skip
         self._channels = channels
+        n = env.observation_space.shape[0]
+        h, w = env.observation_space.shape[1:3]
         self.frames = np.zeros(
-            (env.observation_space.shape[0], 96, 96, skip * channels), dtype=np.uint8
+            (n, h, w, skip * channels), dtype=np.uint8
         )
         self.rewards = np.zeros(
-            (env.observation_space.shape[0], skip), dtype=np.float32
+            (n, skip), dtype=np.float32
         )
 
     def step(self, actions: ActType):

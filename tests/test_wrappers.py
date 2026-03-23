@@ -8,6 +8,8 @@ import matplotlib.image as mpimg
 from enviroment.wrappers.SkipFrame import SkipFrame
 from enviroment.wrappers.SkipFrameVec import SkipFrameVec
 from enviroment.wrappers.GreyscaleObservation import GreyscaleObservation
+from enviroment.wrappers.CropObservation import CropObservation
+from enviroment.wrappers.CropObservationVec import CropObservationVec
 from enviroment.wrappers.HSLObservation import HSLObservation
 from enviroment.wrappers.GreyscaleObservationVec import GreyscaleObservationVec
 from enviroment.wrappers.HSLObservationVec import HSLObservationVec
@@ -1304,3 +1306,259 @@ class TestOpticalFlowVisualSnapshots:
             print(f"  Saved: {os.path.abspath(path)}")
 
         env.close()
+
+
+# =============================================================================
+# CropObservation wrapper tests
+# =============================================================================
+
+# --- CropObservation scalar tests ---
+
+
+@pytest.fixture
+def crop_env():
+    """Scalar CarRacing env wrapped with CropObservation (84x84)."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = CropObservation(env, target_h=84, target_w=84)
+    return env
+
+
+@pytest.fixture
+def crop_hsl_env():
+    """Scalar CarRacing env: HSLObservation -> CropObservation (84x84)."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = HSLObservation(env)
+    env = CropObservation(env, target_h=84, target_w=84)
+    return env
+
+
+@pytest.fixture
+def crop_skip_env():
+    """Scalar CarRacing env: HSLObservation -> CropObservation -> SkipFrame."""
+    env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+    env = HSLObservation(env)
+    env = CropObservation(env, target_h=84, target_w=84)
+    env = SkipFrame(env, skip=SKIP, channels=3)
+    return env
+
+
+class TestCropObservation:
+    def test_reset_returns_correct_shape(self, crop_env):
+        obs, info = crop_env.reset(seed=42)
+        assert obs.shape == (84, 84, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, crop_env):
+        crop_env.reset(seed=42)
+        obs, reward, terminated, truncated, info = crop_env.step(3)
+        assert obs.shape == (84, 84, 3)
+        assert obs.dtype == np.uint8
+        assert isinstance(reward, (float, np.floating))
+        assert isinstance(terminated, bool)
+        assert isinstance(truncated, bool)
+
+    def test_observation_space(self, crop_env):
+        assert crop_env.observation_space.shape == (84, 84, 3)
+        assert crop_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, crop_env):
+        crop_env.reset(seed=42)
+        obs, _, _, _, _ = crop_env.step(3)
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_non_zero_after_reset(self, crop_env):
+        obs, _ = crop_env.reset(seed=42)
+        assert not np.all(obs == 0)
+
+    def test_preserves_top_rows(self):
+        """Top portion of the image should be preserved (not black)."""
+        env_raw = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_crop = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_crop = CropObservation(env_crop, target_h=84, target_w=84)
+
+        raw, _ = env_raw.reset(seed=42)
+        raw, _, _, _, _ = env_raw.step(3)
+        cropped, _ = env_crop.reset(seed=42)
+        cropped, _, _, _, _ = env_crop.step(3)
+
+        # Top-left region of cropped should match raw (6px horizontal offset)
+        assert np.allclose(raw[:84, 6:90, :], cropped)
+
+        env_raw.close()
+        env_crop.close()
+
+    def test_with_hsl(self, crop_hsl_env):
+        obs, _ = crop_hsl_env.reset(seed=42)
+        assert obs.shape == (84, 84, 3)
+        obs, _, _, _, _ = crop_hsl_env.step(3)
+        assert obs.shape == (84, 84, 3)
+        crop_hsl_env.close()
+
+    def test_with_skipframe(self, crop_skip_env):
+        frames, _ = crop_skip_env.reset(seed=42)
+        assert frames.shape == (84, 84, SKIP * 3)
+        assert frames.dtype == np.uint8
+
+        frames, _, terminated, truncated, _ = crop_skip_env.step(3)
+        assert frames.shape == (84, 84, SKIP * 3)
+        crop_skip_env.close()
+
+    def test_no_crop_when_same_size(self):
+        """If target size equals input size, no cropping should occur."""
+        env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env = CropObservation(env, target_h=96, target_w=96)
+        obs, _ = env.reset(seed=42)
+        assert obs.shape == (96, 96, 3)
+        env.close()
+
+
+# --- CropObservationVec tests ---
+
+
+@pytest.fixture
+def crop_vec_env():
+    """Vectorized CarRacing env (2 envs) wrapped with CropObservationVec (84x84)."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = CropObservationVec(env, target_h=84, target_w=84)
+    return env
+
+
+@pytest.fixture
+def crop_skip_vec_env():
+    """Vectorized: HSLObservationVec -> CropObservationVec -> SkipFrameVec."""
+    env = gym.make_vec(
+        "CarRacing-v3",
+        num_envs=NUM_ENVS,
+        vectorization_mode=gym.VectorizeMode.ASYNC,
+        continuous=False,
+        render_mode="rgb_array",
+    )
+    env = HSLObservationVec(env)
+    env = CropObservationVec(env, target_h=84, target_w=84)
+    env = SkipFrameVec(env, skip=SKIP, channels=3)
+    return env
+
+
+class TestCropObservationVec:
+    def test_reset_returns_correct_shape(self, crop_vec_env):
+        obs, info = crop_vec_env.reset(seed=[42, 43])
+        assert obs.shape == (NUM_ENVS, 84, 84, 3)
+        assert obs.dtype == np.uint8
+
+    def test_step_returns_correct_shape(self, crop_vec_env):
+        crop_vec_env.reset(seed=[42, 43])
+        obs, reward, terminated, truncated, info = crop_vec_env.step([3, 3])
+        assert obs.shape == (NUM_ENVS, 84, 84, 3)
+        assert reward.shape == (NUM_ENVS,)
+        assert terminated.shape == (NUM_ENVS,)
+        assert truncated.shape == (NUM_ENVS,)
+
+    def test_observation_space(self, crop_vec_env):
+        assert crop_vec_env.observation_space.shape == (NUM_ENVS, 84, 84, 3)
+        assert crop_vec_env.observation_space.dtype == np.uint8
+
+    def test_values_in_range(self, crop_vec_env):
+        crop_vec_env.reset(seed=[42, 43])
+        obs, _, _, _, _ = crop_vec_env.step([3, 3])
+        assert obs.min() >= 0
+        assert obs.max() <= 255
+
+    def test_multiple_steps(self, crop_vec_env):
+        crop_vec_env.reset(seed=[42, 43])
+        for _ in range(3):
+            obs, _, _, _, _ = crop_vec_env.step([3, 3])
+            assert obs.shape == (NUM_ENVS, 84, 84, 3)
+        crop_vec_env.close()
+
+    def test_with_skipframe_vec(self, crop_skip_vec_env):
+        frames, _ = crop_skip_vec_env.reset(seed=[42, 43])
+        assert frames.shape == (NUM_ENVS, 84, 84, SKIP * 3)
+        assert frames.dtype == np.uint8
+
+        frames, _, _, _, _ = crop_skip_vec_env.step([3, 3])
+        assert frames.shape == (NUM_ENVS, 84, 84, SKIP * 3)
+        crop_skip_vec_env.close()
+
+
+# --- CropObservation visual snapshot test ---
+# Run with: venv/bin/python -m pytest tests/test_wrappers.py::TestCropVisualSnapshot -v -s
+
+
+class TestCropVisualSnapshot:
+    def test_crop_snapshot(self):
+        """Save original 96x96 and cropped 84x84 frames for visual verification."""
+        out_dir = os.path.join(IMAGES_DIR, "crop_observation")
+        os.makedirs(out_dir, exist_ok=True)
+
+        env_raw = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_crop = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        env_crop = CropObservation(env_crop, target_h=84, target_w=84)
+
+        # Warm up so the car is moving and has content
+        env_raw.reset(seed=42)
+        for _ in range(4):
+            env_raw.step(3)
+        for _ in range(2):
+            env_raw.step(0)
+        raw, _, _, _, _ = env_raw.step(3)
+
+        env_crop.reset(seed=42)
+        for _ in range(4):
+            env_crop.step(3)
+        for _ in range(2):
+            env_crop.step(0)
+        cropped, _, _, _, _ = env_crop.step(3)
+
+        # Save original
+        raw_path = os.path.join(out_dir, "original_96x96.png")
+        mpimg.imsave(raw_path, raw)
+
+        # Save cropped
+        crop_path = os.path.join(out_dir, "cropped_84x84.png")
+        mpimg.imsave(crop_path, cropped)
+
+        # Save original with crop region outlined (red border)
+        outlined = raw.copy()
+        crop_left = (96 - 84) // 2  # 6
+        crop_right = 96 - 6         # 90
+        crop_bottom = 96 - 84       # 12
+        # Top edge
+        outlined[0, crop_left:crop_right] = [255, 0, 0]
+        # Bottom edge
+        outlined[84, crop_left:crop_right] = [255, 0, 0]
+        # Left edge
+        outlined[:84, crop_left] = [255, 0, 0]
+        # Right edge
+        outlined[:84, crop_right - 1] = [255, 0, 0]
+        # Bottom bar region (the removed area) made semi-transparent red
+        outlined[84:, :] = outlined[84:, :] // 2 + np.array([128, 0, 0], dtype=np.uint8) // 2
+        outlined_path = os.path.join(out_dir, "original_with_crop_outline.png")
+        mpimg.imsave(outlined_path, outlined)
+
+        # Side by side: original | cropped (pad cropped to 96 height for alignment)
+        padded_crop = np.zeros_like(raw)
+        padded_crop[:84, crop_left:crop_right] = cropped
+        side_by_side = np.concatenate([raw, padded_crop], axis=1)
+        sb_path = os.path.join(out_dir, "side_by_side.png")
+        mpimg.imsave(sb_path, side_by_side)
+
+        print(f"\n  Saved: {os.path.abspath(raw_path)} ({raw.shape})")
+        print(f"  Saved: {os.path.abspath(crop_path)} ({cropped.shape})")
+        print(f"  Saved: {os.path.abspath(outlined_path)}")
+        print(f"  Saved: {os.path.abspath(sb_path)}")
+
+        # Verify dimensions
+        assert raw.shape == (96, 96, 3)
+        assert cropped.shape == (84, 84, 3)
+        # Verify pixel match: cropped should equal raw[0:84, 6:90]
+        assert np.array_equal(cropped, raw[:84, 6:90, :])
+
+        env_raw.close()
+        env_crop.close()

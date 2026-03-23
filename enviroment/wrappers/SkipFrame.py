@@ -16,7 +16,8 @@ class SkipFrame(gym.Wrapper):
         super().__init__(env)
         self._skip = skip
         self._channels = channels
-        self.frames = np.zeros((96, 96, skip * channels), dtype=np.uint8)
+        h, w = env.observation_space.shape[:2]
+        self.frames = np.zeros((h, w, skip * channels), dtype=np.uint8)
         self.rewards = np.zeros(skip, dtype=np.float32)
 
     def step(self, action):

@@ -12,6 +12,10 @@ STATE_SHAPE_RAW = (2, 96, 96, 3)
 STATE_SHAPE_D2 = (2, 96, 96, 6)
 STATE_SHAPE_D21 = (2, 96, 96, 12)
 
+STATE_SHAPE_RAW_84 = (2, 84, 84, 3)
+STATE_SHAPE_D2_84 = (2, 84, 84, 6)
+STATE_SHAPE_D21_84 = (2, 84, 84, 12)
+
 HAS_CUDA = torch.cuda.is_available()
 DEVICES = ["cpu"] + (["cuda"] if HAS_CUDA else [])
 

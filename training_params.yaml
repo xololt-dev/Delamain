@@ -9,6 +9,7 @@ env:
   vec: False
   envs_num: 4
   optical_flow: False
+  crop_size: 84
   mode: "train"
   device:
   # device: "CPU"
