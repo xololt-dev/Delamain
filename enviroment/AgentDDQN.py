@@ -202,6 +202,7 @@ class AgentDDQN:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        self.scheduler.step()
         loss = loss.detach().cpu().item()
 
         return td_est, loss

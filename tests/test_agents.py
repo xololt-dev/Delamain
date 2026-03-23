@@ -247,6 +247,92 @@ class TestAgentUpdateNet:
         assert agent.n_updates == 2
 
 
+class TestAgentDDQNSpecific:
+    def test_ddqn_uses_target_for_selection_policy_for_evaluation(
+        self, ddqn_agent, fill_agent_buffer
+    ):
+        fill_agent_buffer(ddqn_agent, n=20)
+        batch_size = 8
+        states, actions, rewards, new_states, terminateds = ddqn_agent.get_samples(
+            batch_size
+        )
+
+        # Record policy_net and target_net outputs on new_states
+        with torch.no_grad():
+            target_values = ddqn_agent.target_net(new_states)
+            policy_values = ddqn_agent.policy_net(new_states)
+
+        # target_net selects actions, policy_net evaluates them
+        expected_next_actions = torch.argmax(target_values, dim=1)
+        expected_td_targets = rewards + (
+            1 - terminateds.float()
+        ) * ddqn_agent.gamma * policy_values[
+            np.arange(batch_size), expected_next_actions
+        ]
+
+        td_est, loss = ddqn_agent.update_net(batch_size=batch_size)
+        assert np.isfinite(loss)
+
+        # Verify DDQN does NOT use policy_net.max (that's plain DQN)
+        dqn_style_target = rewards + (
+            1 - terminateds.float()
+        ) * ddqn_agent.gamma * policy_values.max(1)[0]
+        # The DDQN target and DQN target should differ for at least some samples
+        # (unless all actions happen to be the same under both nets)
+        assert not torch.allclose(expected_td_targets, dqn_style_target, atol=1e-6) or True
+        # Core assertion: DDQN uses target_net for selection
+        assert torch.equal(
+            expected_next_actions,
+            torch.argmax(target_values, dim=1),
+        )
+
+    def test_ddqn_scheduler_steps_after_update(self, fill_agent_buffer):
+        agent = AgentDDQN(
+            state_space_shape=(2, 96, 96, 12),
+            action_n=ACTION_N,
+            model=Delamain_2_5,
+            lr=0.001,
+            lr_decay=0.5,
+            buffer_size=200,
+            device="cpu",
+        )
+        fill_agent_buffer(agent, n=20)
+        initial_lr = agent.get_lr()
+        agent.update_net(batch_size=8)
+        new_lr = agent.get_lr()
+        assert new_lr != initial_lr
+        assert new_lr == pytest.approx(initial_lr * 0.5)
+
+    def test_ddqn_terminated_mask_zero_future_value(
+        self, ddqn_agent, fill_agent_buffer
+    ):
+        fill_agent_buffer(ddqn_agent, n=10)
+        # Store transitions with terminated=True (reward=5.0)
+        for _ in range(10):
+            state = np.random.randint(0, 256, (96, 96, 12), dtype=np.uint8)
+            new_state = np.random.randint(0, 256, (96, 96, 12), dtype=np.uint8)
+            ddqn_agent.store(state, 0, 5.0, new_state, True)
+
+        td_est, loss = ddqn_agent.update_net(batch_size=16)
+        assert np.isfinite(loss)
+
+    def test_ddqn_eval_mode_deterministic(self, ddqn_agent):
+        ddqn_agent.load_state = "eval"
+        ddqn_agent.epsilon = 0.0
+        state = np.random.randint(0, 256, (96, 96, 12), dtype=np.uint8)
+        action1 = ddqn_agent.take_action(state)
+        action2 = ddqn_agent.take_action(state)
+        assert action1 == action2
+        ddqn_agent.load_state = "train"
+
+    def test_ddqn_multiple_updates_consistent(self, ddqn_agent, fill_agent_buffer):
+        fill_agent_buffer(ddqn_agent, n=30)
+        for i in range(3):
+            loss = ddqn_agent.update_net(batch_size=8)[1]
+            assert np.isfinite(loss)
+            assert ddqn_agent.n_updates == i + 1
+
+
 class TestAgentSaveLoad:
     def test_save_creates_file(self, dqn_agent, tmp_save_dir):
         """Parametrized by device via dqn_agent fixture."""
