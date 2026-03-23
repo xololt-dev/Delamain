@@ -11,17 +11,31 @@ Parameters file used for setting up the eval / training environment is written i
     - string
     - model file name placed inside /training/saved_models
 - env:
+  - continous
+    - boolean
+    - default: False
   - random_colors
     - boolean
+    - default: False
   - skip_frames
     - int
   - vec
     - boolean
+    - default: False
   - envs_num
     - int
+  - observation
+    - string
+    - options: "RGB", "HSL", "GREY"
+    - default: "RGB"
+  - antialiasing
+    - string
+    - options: "EDGE", "GAUSS", "NONE"
+    - default: "NONE"
   - optical_flow
     - boolean
     - enables optical flow wrapper (dx, dy channels added after SkipFrame)
+    - default: False
   - mode
     - string
     - options: 'train', 'eval', None

@@ -1,13 +1,17 @@
 model:
-  class_name: 'Delamain_2_5'
-  file_name: 
+  class_name: "Delamain_2_6"
+  # file_name: "Delamain_2_5_7_12.pt"
+  file_name:
   # file_name: 'Delamain_21_11.pt'
   # file_name: 'Delamain_732290.pt'
 env:
+  continous: False
   random_colors: False
   skip_frames: 4
-  vec: False
+  vec: True
   envs_num: 4
+  observation: "RGB"
+  antialiasing: "NONE"
   optical_flow: False
   crop_size: 84
   mode: "train"
@@ -26,13 +30,14 @@ train:
   buffer_size: 42500
   # buffer_size: 77500
 eval:
-  tracks: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30]
+  tracks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   video: False
 reporting:
   when2learn: 1024 # in timesteps
+  # when2learn: 4 # in timesteps
   when2sync: 5000 # in timesteps
   when2save: 50000 # in timesteps
   when2report: 5000 # in timesteps
   when2eval: 25000 # in timesteps
   when2log: 20 # in episodes
-  report_type: 'text' # 'text', 'plot', None
+  report_type: "text" # 'text', 'plot', None

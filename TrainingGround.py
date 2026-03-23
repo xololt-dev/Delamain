@@ -29,6 +29,10 @@ from environment.wrappers import (
     SkipFrameVec,
     OpticalFlowObservation,
     OpticalFlowObservationVec,
+    EdgeAntialiasObservation,
+    EdgeAntialiasObservationVec,
+    GaussianAntialiasObservation,
+    GaussianAntialiasObservationVec,
 )
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
@@ -78,7 +82,16 @@ class TrainingGround:
         self.algorithm: Algorithms = Algorithms[
             yamlValues["train"].get("algorithm", "DQN")
         ]
+        assert not yamlValues["env"].get(
+            "continous", False
+        ), "Currently only discrete action space available!"
         self.vec: bool = yamlValues["env"].get("vec", False)
+        self.observation: Observations = Observations[
+            yamlValues["env"].get("observation", "RGB")
+        ]
+        self.antialiasing: Antialiasing = Antialiasing[
+            yamlValues["env"].get("antialiasing", "NONE")
+        ]
         self.envs_num: int = yamlValues["env"].get("envs_num", 1)
         self._skip_frames: int = yamlValues["env"].get("skip_frames", 4)
         self._optical_flow: bool = yamlValues["env"].get("optical_flow", False)
@@ -96,9 +109,32 @@ class TrainingGround:
                 render_mode="rgb_array",
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
-            self.env = HSLObservationVec(self.env)
+
             if self._crop_size is not None:
-                self.env = CropObservationVec(self.env, target_h=self._crop_size, target_w=self._crop_size)
+                self.env = CropObservationVec(
+                    self.env, target_h=self._crop_size, target_w=self._crop_size
+                )
+
+            match self.observation:
+                case Observations.RGB:
+                    pass
+                case Observations.HSL:
+                    self.env = HSLObservationVec(self.env)
+                case Observations.GREYSCALE:
+                    self.env = GreyscaleObservationVec(self.env)
+                case _:
+                    pass
+
+            match self.antialiasing:
+                case Antialiasing.EDGE:
+                    self.env = EdgeAntialiasObservationVec(self.env)
+                case Antialiasing.GAUSSIAN:
+                    self.env = GaussianAntialiasObservationVec(self.env)
+                case Antialiasing.NONE:
+                    pass
+                case _:
+                    pass
+
             self.env = SkipFrameVec(
                 self.env,
                 skip=self._skip_frames,
@@ -117,9 +153,31 @@ class TrainingGround:
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
 
-            self.env = HSLObservation(self.env)
             if self._crop_size is not None:
-                self.env = CropObservation(self.env, target_h=self._crop_size, target_w=self._crop_size)
+                self.env = CropObservation(
+                    self.env, target_h=self._crop_size, target_w=self._crop_size
+                )
+
+            match self.observation:
+                case Observations.RGB:
+                    pass
+                case Observations.HSL:
+                    self.env = HSLObservation(self.env)
+                case Observations.GREYSCALE:
+                    self.env = GreyscaleObservation(self.env)
+                case _:
+                    pass
+
+            match self.antialiasing:
+                case Antialiasing.EDGE:
+                    self.env = EdgeAntialiasObservation(self.env)
+                case Antialiasing.GAUSSIAN:
+                    self.env = GaussianAntialiasObservation(self.env)
+                case Antialiasing.NONE:
+                    pass
+                case _:
+                    pass
+
             self.env = SkipFrame(self.env, skip=self._skip_frames)
             if self._optical_flow:
                 self.env = OpticalFlowObservation(
@@ -250,6 +308,9 @@ class TrainingGround:
             case "eval":
                 return self.eval()
             case "train":
+                # total_params = self.driver.actor.get_params()
+                # print(f"Total number of parameters: {total_params}")
+                # return
                 return self.train()
             case "fine_tune":
                 return self.fine_tune()
@@ -260,6 +321,7 @@ class TrainingGround:
 
     def train(self):
         if self.vec:
+            # self.train_vec_2()
             self.train_vec()
         else:
             self.train_scalar()
@@ -480,6 +542,8 @@ class TrainingGround:
 
                 dones = np.logical_or(terminated, truncated)
                 for i in range(self.envs_num):
+                    if current_ep_lengths[i] > 250:
+                        print("i length>250!!!!!: ", i)
                     if dones[i]:
                         # Log the completed episode for this specific car
                         self.episode_reward_list.append(current_ep_rewards[i])
@@ -487,6 +551,17 @@ class TrainingGround:
                         self.episode_loss_list.append(last_loss)
                         self.episode_epsilon_list.append(self.driver.epsilon)
                         self.episode_lr_list.append(self.driver.get_lr())
+                        print(
+                            "i: ",
+                            i,
+                            "reward:",
+                            current_ep_rewards[i],
+                            " length: ",
+                            current_ep_lengths[i],
+                            " last_loss: ",
+                            last_loss,
+                        )
+
                         self.episode_actions_in_row_list.append(
                             np.mean(actions_in_row[i])
                         )
@@ -643,6 +718,8 @@ class TrainingGround:
 
             if np.any(dones):
                 for i in range(self.envs_num):
+                    if current_ep_lengths[i] > 250:
+                        print("i length>250!!!!!: ", i)
                     if dones[i]:
                         # Log the completed episode for this specific car
                         self.episode_reward_list.append(current_ep_rewards[i])
@@ -650,6 +727,10 @@ class TrainingGround:
                         self.episode_loss_list.append(last_loss)
                         self.episode_epsilon_list.append(self.driver.epsilon)
                         self.episode_lr_list.append(self.driver.get_lr())
+                        print(
+                            f"Episode: {self.episode}, timestep: {self.timestep_n}, i: {i}, reward: {current_ep_rewards[i]}, length: {current_ep_lengths[i]}, last_loss: {last_loss}",
+                        )
+
                         now_time = datetime.datetime.now()
                         self.episode_date_list.append(
                             now_time.date().strftime("%Y-%m-%d")
@@ -664,6 +745,12 @@ class TrainingGround:
                         self.episode += 1
 
                 self.state, info = self.env.reset(options={"reset_mask": dones})
+                if not np.all(dones):
+                    print(dones)
+                    print(self.state[0] == new_state[0])
+                    print(self.state[1] == new_state[1])
+                    print(self.state[2] == new_state[2])
+                    print(self.state[3] == new_state[3])
 
             if self.timestep_n % self.when2sync == 0:
                 if self.algorithm != Algorithms.PPO:
