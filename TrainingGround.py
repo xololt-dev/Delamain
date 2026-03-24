@@ -8,6 +8,7 @@ import torch.nn as nn
 import matplotlib
 import matplotlib.pyplot as plt
 import time
+import random
 
 from functools import partial
 
@@ -96,6 +97,12 @@ class TrainingGround:
         self._skip_frames: int = yamlValues["env"].get("skip_frames", 4)
         self._optical_flow: bool = yamlValues["env"].get("optical_flow", False)
         self._crop_size: int | None = yamlValues["env"].get("crop_size", None)
+
+        self.seed = yamlValues["train"].get("seed", None)
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+            np.random.seed(self.seed)
+            random.seed(self.seed)
 
         if self.vec:
             self.env = gym.make_vec(
@@ -198,7 +205,7 @@ class TrainingGround:
                     ),  # Record every episode
                 )
 
-        self.state, info = self.env.reset()
+        self.state, info = self.env.reset(seed=self.seed)
         self.previous_state = self.state
         action_n = (
             self.env.single_action_space.n if self.vec else self.env.action_space.n
@@ -434,7 +441,7 @@ class TrainingGround:
                     self.driver.epsilon_end = epsl_end
                     self.driver.epsilon = curr_epsl
 
-            self.state, info = self.env.reset()
+            self.state, info = self.env.reset(seed=self.seed)
 
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
@@ -649,7 +656,7 @@ class TrainingGround:
                     self.driver.epsilon_end = epsl_end
                     self.driver.epsilon = curr_epsl
 
-            self.state, info = self.env.reset()
+            self.state, info = self.env.reset(seed=self.seed)
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(
@@ -744,7 +751,9 @@ class TrainingGround:
                         current_ep_lengths[i] = 0
                         self.episode += 1
 
-                self.state, info = self.env.reset(options={"reset_mask": dones})
+                self.state, info = self.env.reset(
+                    seed=self.seed, options={"reset_mask": dones}
+                )
                 if not np.all(dones):
                     print(dones)
                     print(self.state[0] == new_state[0])
@@ -809,7 +818,7 @@ class TrainingGround:
                 self.driver.epsilon_end = epsl_end
                 self.driver.epsilon = curr_epsl
 
-                self.state, info = self.env.reset()
+                self.state, info = self.env.reset(seed=self.seed)
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(

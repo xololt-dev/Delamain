@@ -28,6 +28,7 @@ train:
   lr: 0.002
   lr_decay: 0.9999925
   buffer_size: 42500
+  seed:
   # buffer_size: 77500
 eval:
   tracks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]

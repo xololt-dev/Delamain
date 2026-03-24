@@ -67,6 +67,10 @@ Parameters file used for setting up the eval / training environment is written i
     - float
   - buffer_size
     - int
+  - seed
+    - int | null
+    - if set, pins env + torch + numpy + random RNGs for full reproducibility
+    - default: null
 - eval:
   - tracks
     - int | list[int]
