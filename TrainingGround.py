@@ -265,13 +265,11 @@ class TrainingGround:
 
     def _get_input_channels(self) -> int:
         """Compute the number of input channels based on the wrapper chain."""
-        skip_frames = self._skip_frames
-        optical_flow = self._optical_flow
         base_channels = 3  # HSLObservation always outputs 3 channels
 
-        if optical_flow:
+        if self._optical_flow:
             return base_channels + 2  # HSL channels + dx + dy
-        return skip_frames * base_channels
+        return self._skip_frames * base_channels
 
     def parse_class_name(self, class_name: str | None, input_size: int = 96):
         match class_name:
