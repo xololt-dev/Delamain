@@ -150,7 +150,7 @@ class TrainingGround:
                 self.env = OpticalFlowObservationVec(
                     self.env,
                     skip=self._skip_frames,
-                    channels=3,
+                    channels=3,  # TODO: greyscale or RGB/HSL
                 )
         else:
             self.env = gym.make(
@@ -190,7 +190,7 @@ class TrainingGround:
                 self.env = OpticalFlowObservation(
                     self.env,
                     skip=self._skip_frames,
-                    channels=3,
+                    channels=3,  # TODO: greyscale or RGB/HSL
                 )
 
             if yamlValues["eval"]["video"]:
@@ -237,8 +237,7 @@ class TrainingGround:
                 lr=yamlValues["train"]["lr"],
                 lr_decay=yamlValues["train"]["lr_decay"],
                 buffer_size=yamlValues["train"]["buffer_size"],
-                skip_frames=yamlValues["env"]["skip_frames"]
-                * yamlValues["reporting"]["when2learn"],
+                skip_frames=self._skip_frames * yamlValues["reporting"]["when2learn"],
                 play_n_episodes=yamlValues["train"]["play_n_episodes"],
                 vec=self.vec,
                 device=yamlValues["env"].get("device", None),
@@ -399,45 +398,10 @@ class TrainingGround:
                     self.timestep_n % self.when2report == 0
                     and self.report_type == "text"
                 ):
-                    print(f"Report: {self.timestep_n} timestep")
-                    print(f"    episodes: {self.episode}")
-                    print(f"    n_updates: {self.driver.n_updates}")
-                    print(f"    epsilon: {self.driver.epsilon}")
-                    print(f"    lr: {self.driver.get_lr()}")
+                    self._report_timestep()
 
                 if self.timestep_n % self.when2eval == 0 and self.report_type == "text":
-                    rewards_tensor = torch.tensor(
-                        self.episode_reward_list, dtype=torch.float
-                    )
-                    eval_reward = torch.clone(rewards_tensor[-50:])
-                    mean_eval_reward = round(torch.mean(eval_reward).item(), 2)
-                    std_eval_reward = round(torch.std(eval_reward).item(), 2)
-
-                    lengths_tensor = torch.tensor(
-                        self.episode_length_list, dtype=torch.float
-                    )
-                    eval_length = torch.clone(lengths_tensor[-50:])
-                    mean_eval_length = round(torch.mean(eval_length).item(), 2)
-                    std_eval_length = round(torch.std(eval_length).item(), 2)
-
-                    print(f"Evaluation: {self.timestep_n} timestep")
-                    print(f"    reward {mean_eval_reward}±{std_eval_reward}")
-                    print(f"    episode length {mean_eval_length}±{std_eval_length}")
-                    print(f"    episodes: {self.episode}")
-                    print(f"    n_updates: {self.driver.n_updates}")
-                    print(f"    epsilon: {self.driver.epsilon}")
-                    print(f"    lr: {self.driver.get_lr()}")
-                    epsl_end = self.driver.epsilon_end
-                    curr_epsl = self.driver.epsilon
-                    self.driver.epsilon_end = self.driver.epsilon = 0.0
-                    self.driver.policy_net.eval()
-                    self.driver.load_state = "eval"
-                    with torch.no_grad():
-                        self.eval()
-                    self.driver.load_state = "train"
-                    self.driver.policy_net.train()
-                    self.driver.epsilon_end = epsl_end
-                    self.driver.epsilon = curr_epsl
+                    self._eval_timestep()
 
             self.state, info = self.env.reset(seed=self.seed)
 
@@ -464,18 +428,8 @@ class TrainingGround:
                 )
 
             if self.episode % self.when2log == 0:
-                self.driver.write_log(
-                    self.episode_date_list,
-                    self.episode_time_list,
-                    self.episode_reward_list,
-                    self.episode_length_list,
-                    self.episode_loss_list,
-                    self.episode_epsilon_list,
-                    self.episode_lr_list,
-                    self.episode_actions_in_row_list,
-                    self.episode_fuel_efficiency_list,
-                    log_filename=f"{self.class_name}_log_test.csv",
-                )
+                self._log_timestep()
+
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
         self.env.close()
@@ -611,48 +565,13 @@ class TrainingGround:
                     self.timestep_n % self.when2report == 0
                     and self.report_type == "text"
                 ):
-                    print(f"Report: {self.timestep_n} timestep")
-                    print(f"    episodes: {self.episode}")
-                    print(f"    n_updates: {self.driver.n_updates}")
-                    print(f"    epsilon: {self.driver.epsilon}")
-                    print(f"    lr: {self.driver.get_lr()}")
+                    self._report_timestep()
 
                 if self.timestep_n % self.when2eval == 0 and self.report_type == "text":
                     # Because eval resets env we need to stop current updating to force another env reset post eval
                     updating = False
 
-                    rewards_tensor = torch.tensor(
-                        self.episode_reward_list, dtype=torch.float
-                    )
-                    eval_reward = torch.clone(rewards_tensor[-50:])
-                    mean_eval_reward = round(torch.mean(eval_reward).item(), 2)
-                    std_eval_reward = round(torch.std(eval_reward).item(), 2)
-
-                    lengths_tensor = torch.tensor(
-                        self.episode_length_list, dtype=torch.float
-                    )
-                    eval_length = torch.clone(lengths_tensor[-50:])
-                    mean_eval_length = round(torch.mean(eval_length).item(), 2)
-                    std_eval_length = round(torch.std(eval_length).item(), 2)
-
-                    print(f"Evaluation: {self.timestep_n} timestep")
-                    print(f"    reward {mean_eval_reward}±{std_eval_reward}")
-                    print(f"    episode length {mean_eval_length}±{std_eval_length}")
-                    print(f"    episodes: {self.episode}")
-                    print(f"    n_updates: {self.driver.n_updates}")
-                    print(f"    epsilon: {self.driver.epsilon}")
-                    print(f"    lr: {self.driver.get_lr()}")
-                    epsl_end = self.driver.epsilon_end
-                    curr_epsl = self.driver.epsilon
-                    self.driver.epsilon_end = self.driver.epsilon = 0.0
-                    self.driver.policy_net.eval()
-                    self.driver.load_state = "eval"
-                    with torch.no_grad():
-                        self.eval()
-                    self.driver.load_state = "train"
-                    self.driver.policy_net.train()
-                    self.driver.epsilon_end = epsl_end
-                    self.driver.epsilon = curr_epsl
+                    self._eval_timestep()
 
             self.state, info = self.env.reset(seed=self.seed)
 
@@ -662,18 +581,8 @@ class TrainingGround:
                 )
 
             if self.episode % self.when2log == 0:
-                self.driver.write_log(
-                    self.episode_date_list,
-                    self.episode_time_list,
-                    self.episode_reward_list,
-                    self.episode_length_list,
-                    self.episode_loss_list,
-                    self.episode_epsilon_list,
-                    self.episode_lr_list,
-                    self.episode_actions_in_row_list,
-                    self.episode_fuel_efficiency_list,
-                    log_filename=f"{self.class_name}_log_test.csv",
-                )
+                self._log_timestep()
+
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
         self.env.close()
@@ -772,49 +681,14 @@ class TrainingGround:
                 last_loss = loss.cpu().numpy()
 
             if self.timestep_n % self.when2report == 0 and self.report_type == "text":
-                print(f"Report: {self.timestep_n} timestep")
-                print(f"    episodes: {self.episode}")
-                print(f"    n_updates: {self.driver.n_updates}")
-                print(f"    epsilon: {self.driver.epsilon}")
-                print(f"    lr: {self.driver.get_lr()}")
+                self._report_timestep()
 
             if (
                 self.timestep_n % self.when2eval == 0
                 and self.report_type == "text"
                 and self.timestep_n != 0
             ):
-                rewards_tensor = torch.tensor(
-                    self.episode_reward_list, dtype=torch.float
-                )
-                eval_reward = torch.clone(rewards_tensor[-50:])
-                mean_eval_reward = round(torch.mean(eval_reward).item(), 2)
-                std_eval_reward = round(torch.std(eval_reward).item(), 2)
-
-                lengths_tensor = torch.tensor(
-                    self.episode_length_list, dtype=torch.float
-                )
-                eval_length = torch.clone(lengths_tensor[-50:])
-                mean_eval_length = round(torch.mean(eval_length).item(), 2)
-                std_eval_length = round(torch.std(eval_length).item(), 2)
-
-                print(f"Evaluation: {self.timestep_n} timestep")
-                print(f"    reward {mean_eval_reward}±{std_eval_reward}")
-                print(f"    episode length {mean_eval_length}±{std_eval_length}")
-                print(f"    episodes: {self.episode}")
-                print(f"    n_updates: {self.driver.n_updates}")
-                print(f"    epsilon: {self.driver.epsilon}")
-                print(f"    lr: {self.driver.get_lr()}")
-                epsl_end = self.driver.epsilon_end
-                curr_epsl = self.driver.epsilon
-                self.driver.epsilon_end = self.driver.epsilon = 0.0
-                self.driver.policy_net.eval()
-                self.driver.load_state = "eval"
-                with torch.no_grad():
-                    self.eval()
-                self.driver.load_state = "train"
-                self.driver.policy_net.train()
-                self.driver.epsilon_end = epsl_end
-                self.driver.epsilon = curr_epsl
+                self._eval_timestep()
 
                 self.state, info = self.env.reset(seed=self.seed)
 
@@ -824,18 +698,8 @@ class TrainingGround:
                 )
 
             if self.episode % self.when2log == 0:
-                self.driver.write_log(
-                    self.episode_date_list,
-                    self.episode_time_list,
-                    self.episode_reward_list,
-                    self.episode_length_list,
-                    self.episode_loss_list,
-                    self.episode_epsilon_list,
-                    self.episode_lr_list,
-                    self.episode_actions_in_row_list,
-                    self.episode_fuel_efficiency_list,
-                    log_filename=f"{self.class_name}_log_test.csv",
-                )
+                self._log_timestep()
+
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
 
         self.env.close()
@@ -1004,3 +868,55 @@ class TrainingGround:
             kernels, "./encoder_conv1_filters.png", nrow=16
         )
         print("kernel saved")
+
+    def _report_timestep(self):
+        print(f"Report: {self.timestep_n} timestep")
+        print(f"    episodes: {self.episode}")
+        print(f"    n_updates: {self.driver.n_updates}")
+        print(f"    epsilon: {self.driver.epsilon}")
+        print(f"    lr: {self.driver.get_lr()}")
+
+    def _eval_timestep(self):
+        rewards_tensor = torch.tensor(self.episode_reward_list, dtype=torch.float)
+        eval_reward = torch.clone(rewards_tensor[-50:])
+        mean_eval_reward = round(torch.mean(eval_reward).item(), 2)
+        std_eval_reward = round(torch.std(eval_reward).item(), 2)
+
+        lengths_tensor = torch.tensor(self.episode_length_list, dtype=torch.float)
+        eval_length = torch.clone(lengths_tensor[-50:])
+        mean_eval_length = round(torch.mean(eval_length).item(), 2)
+        std_eval_length = round(torch.std(eval_length).item(), 2)
+
+        print(f"Evaluation: {self.timestep_n} timestep")
+        print(f"    reward {mean_eval_reward}±{std_eval_reward}")
+        print(f"    episode length {mean_eval_length}±{std_eval_length}")
+        print(f"    episodes: {self.episode}")
+        print(f"    n_updates: {self.driver.n_updates}")
+        print(f"    epsilon: {self.driver.epsilon}")
+        print(f"    lr: {self.driver.get_lr()}")
+
+        epsl_end = self.driver.epsilon_end
+        curr_epsl = self.driver.epsilon
+        self.driver.epsilon_end = self.driver.epsilon = 0.0
+        self.driver.policy_net.eval()
+        self.driver.load_state = "eval"
+        with torch.no_grad():
+            self.eval()
+        self.driver.load_state = "train"
+        self.driver.policy_net.train()
+        self.driver.epsilon_end = epsl_end
+        self.driver.epsilon = curr_epsl
+
+    def _log_timestep(self):
+        self.driver.write_log(
+            self.episode_date_list,
+            self.episode_time_list,
+            self.episode_reward_list,
+            self.episode_length_list,
+            self.episode_loss_list,
+            self.episode_epsilon_list,
+            self.episode_lr_list,
+            self.episode_actions_in_row_list,
+            self.episode_fuel_efficiency_list,
+            log_filename=f"{self.class_name}_log_test.csv",
+        )
