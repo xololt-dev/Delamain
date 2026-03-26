@@ -4,7 +4,7 @@ import csv
 import numpy as np
 import torch
 
-from environment.Agent import Agent
+from environment.AgentDQN import AgentDQN
 from environment.AgentDDQN import AgentDDQN
 from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
@@ -18,7 +18,7 @@ ACTION_N = 5
 # Parametrized tests for Agent (DQN) and AgentDDQN
 # ======================================================================
 
-AGENT_CLASSES = [Agent, AgentDDQN]
+AGENT_CLASSES = [AgentDQN, AgentDDQN]
 AGENT_IDS = ["DQN", "DDQN"]
 AGENT_MAKERS = {"DQN": make_dqn_agent, "DDQN": make_ddqn_agent}
 
@@ -549,7 +549,6 @@ class TestAgentGetLr:
 
 class TestPPOInit:
     def test_ppo_flags(self, ppo_agent):
-        assert ppo_agent.is_ppo is True
         assert ppo_agent.eps_clip == 0.2
         assert ppo_agent.K_epochs == 4
 

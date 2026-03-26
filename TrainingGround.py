@@ -13,7 +13,7 @@ import random
 from functools import partial
 
 from environment.AgentDDQN import AgentDDQN
-from environment.Agent import Agent
+from environment.AgentDQN import AgentDQN
 from environment.AgentPPO import AgentPPO
 from environment.Algorithms import Algorithms
 from environment.Antialiasing import Antialiasing
@@ -44,7 +44,7 @@ from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
 # set up matplotlib
 is_ipython = "inline" in matplotlib.get_backend()
 if is_ipython:
-    from IPython import display
+    from IPython import display  # type: ignore[import-unresolved]
 
 
 class TrainingGround:
@@ -296,16 +296,16 @@ class TrainingGround:
 
     def parse_algorithm(
         self, algorithm: Algorithms | None
-    ) -> type[Agent | AgentPPO | AgentDDQN]:
+    ) -> type[AgentDQN | AgentPPO | AgentDDQN]:
         match algorithm:
             case Algorithms.DQN:
-                return Agent
+                return AgentDQN
             case Algorithms.PPO:
                 return AgentPPO
             case Algorithms.DDQN:
                 return AgentDDQN
             case _:
-                return Agent
+                return AgentDQN
 
     def start(self):
         match self.driver.load_state:

@@ -2,7 +2,7 @@
 
 import torch
 
-from environment.Agent import Agent
+from environment.AgentDQN import AgentDQN
 from environment.AgentDDQN import AgentDDQN
 from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
@@ -22,7 +22,7 @@ DEVICES = ["cpu"] + (["cuda"] if HAS_CUDA else [])
 
 
 def make_dqn_agent(device="cpu"):
-    return Agent(
+    return AgentDQN(
         state_space_shape=STATE_SHAPE_D21,
         action_n=ACTION_N,
         model=Delamain_2_5,

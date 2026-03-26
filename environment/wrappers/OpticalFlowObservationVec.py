@@ -1,8 +1,6 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box
-from typing import Any
-
 from environment.wrappers.OpticalFlowObservation import OpticalFlowObservation
 
 

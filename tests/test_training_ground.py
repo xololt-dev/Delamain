@@ -3,7 +3,7 @@ from functools import partial
 
 from TrainingGround import TrainingGround
 from environment.Algorithms import Algorithms
-from environment.Agent import Agent
+from environment.AgentDQN import AgentDQN
 from environment.AgentDDQN import AgentDDQN
 from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain import Delamain
@@ -98,7 +98,7 @@ class TestParseClassName:
 
 class TestParseAlgorithm:
     def test_dqn(self, tg):
-        assert tg.parse_algorithm(Algorithms.DQN) is Agent
+        assert tg.parse_algorithm(Algorithms.DQN) is AgentDQN
 
     def test_ddqn(self, tg):
         assert tg.parse_algorithm(Algorithms.DDQN) is AgentDDQN
@@ -107,7 +107,7 @@ class TestParseAlgorithm:
         assert tg.parse_algorithm(Algorithms.PPO) is AgentPPO
 
     def test_unknown_returns_agent(self, tg):
-        assert tg.parse_algorithm(None) is Agent
+        assert tg.parse_algorithm(None) is AgentDQN
 
 
 class TestInitReporting:

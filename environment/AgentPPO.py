@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import numpy as np
-from typing import Union
 import os
 import csv
 
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
+from .Agent import Agent
 
 
-class AgentPPO:
+class AgentPPO(Agent):
     SAVE_DIR = "training/saved_models/"
     LOG_DIR = "training/logs/"
 
@@ -23,25 +25,17 @@ class AgentPPO:
         buffer_size: int = 4096,  # Typically larger for PPO rollouts
         **kwargs,  # Catch-all for DQN kwargs passed by TrainingGround that PPO ignores
     ):
-        self.gamma = gamma
-        self.action_n = action_n
-        self.state_space_shape = state_space_shape
-        self.device = kwargs.get(
-            "device", "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        super().__init__(state_space_shape, action_n, gamma, **kwargs)
+
         self.vec = kwargs.get("vec", False)
 
         # PPO specific hyperparameters
         self.eps_clip = 0.2
         self.K_epochs = 4
-        self.is_ppo = True  # Flag for TrainingGround logic
 
         # Dummy variables to prevent TrainingGround logging/eval from crashing
         self.epsilon = 0.0
         self.epsilon_end = 0.0
-        self.act_taken = 0
-        self.n_updates = 0
-        self.load_state = "train"
 
         # Replay Buffer
         self.buffer = []
@@ -74,7 +68,7 @@ class AgentPPO:
             )
         )
 
-    def take_action(self, state: Union[np.ndarray, torch.Tensor]):
+    def take_action(self, state: np.ndarray | torch.Tensor):
         """Chooses an action based on the actor's probability distribution."""
         if isinstance(state, np.ndarray):
             state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device)
@@ -515,7 +509,9 @@ class AgentPPO:
 
     def load(self, load_dir: str, model_name: str):
         save_path = os.path.join(load_dir, model_name)
-        loaded_model = torch.load(save_path, map_location=self.device)
+        loaded_model = torch.load(
+            save_path, map_location=self.device, weights_only=False
+        )
 
         self.actor.load_state_dict(loaded_model["actor_state_dict"])
         self.optimizer.load_state_dict(loaded_model["optimizer_state_dict"])
@@ -529,64 +525,6 @@ class AgentPPO:
             self.act_taken = loaded_model["action_number"]
 
         print(f"PPO Model {model_name} from {load_dir} loaded")
-
-    def write_log(
-        self,
-        date_list: list,
-        time_list: list,
-        reward_list: list,
-        length_list: list,
-        loss_list: list,
-        epsilon_list: list,
-        lr_list: list,
-        actions_in_row_list: list | None = None,
-        fuel_efficiency_list: list | None = None,
-        log_filename: str = "default_log.csv",
-    ):
-        """
-        Writes training logs to a CSV file.
-
-        Parameters:
-            date_list (list) : A list of dates corresponding to the episodes.
-
-            time_list (list) : A list of times corresponding to the episodes.
-
-            reward_list (list) : A list of rewards obtained in each episode.
-
-            length_list (list) : A list of episode lengths (number of steps).
-
-            loss_list (list) : A list of losses recorded during training.
-
-            epsilon_list (list) : A list of epsilon values (exploration rates)
-            during training.
-
-            lr_list (list) : A list of learning rate values recorded during training.
-
-            actions_in_row_list (list) : A list of actions in row values recorded during training.
-
-            fuel_efficiency_list (list) : A list of fuel efficiency values recorded during training.
-
-            log_filename (str) : The name of the CSV file to save the logs.
-        """
-        # Matches original Agent exactly
-        if not os.path.exists(self.LOG_DIR):
-            os.makedirs(self.LOG_DIR)
-        rows = [
-            ["date"] + date_list,
-            ["time"] + time_list,
-            ["reward"] + reward_list,
-            ["length"] + length_list,
-            ["loss"] + loss_list,
-            ["epsilon"] + epsilon_list,
-            ["lr"] + lr_list,
-        ]
-        if actions_in_row_list is not None:
-            rows.append(["actions_in_row"] + actions_in_row_list)
-        if fuel_efficiency_list is not None:
-            rows.append(["fuel_efficiency"] + fuel_efficiency_list)
-        with open(self.LOG_DIR + log_filename, "w") as csvfile:
-            csvwriter = csv.writer(csvfile)
-            csvwriter.writerows(rows)
 
     def get_lr(self):
         return self.scheduler.get_last_lr()[0]
