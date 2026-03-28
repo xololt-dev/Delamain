@@ -34,6 +34,8 @@ from environment.wrappers import (
     EdgeAntialiasObservationVec,
     GaussianAntialiasObservation,
     GaussianAntialiasObservationVec,
+    EarlyTerminate,
+    EarlyTerminateVec,
 )
 from alternative_models.Delamain import Delamain
 from alternative_models.Delamain_2 import Delamain_2
@@ -97,6 +99,9 @@ class TrainingGround:
         self._skip_frames: int = yamlValues["env"].get("skip_frames", 4)
         self._optical_flow: bool = yamlValues["env"].get("optical_flow", False)
         self._crop_size: int | None = yamlValues["env"].get("crop_size", None)
+        _et = yamlValues["env"].get("early_terminate", {})
+        self._early_terminate_threshold: float | None = _et.get("threshold", None)
+        self._early_terminate_penalty: float = _et.get("penalty", 0.0)
 
         self.seed = yamlValues["train"].get("seed", None)
         if self.seed is not None:
@@ -146,6 +151,13 @@ class TrainingGround:
                 self.env,
                 skip=self._skip_frames,
             )
+            if self._early_terminate_threshold is not None:
+                print("EarlyTerminateVec")
+                self.env = EarlyTerminateVec(
+                    self.env,
+                    threshold=self._early_terminate_threshold,
+                    penalty=self._early_terminate_penalty,
+                )
             if self._optical_flow:
                 self.env = OpticalFlowObservationVec(
                     self.env,
@@ -186,6 +198,12 @@ class TrainingGround:
                     pass
 
             self.env = SkipFrame(self.env, skip=self._skip_frames)
+            if self._early_terminate_threshold is not None:
+                self.env = EarlyTerminate(
+                    self.env,
+                    threshold=self._early_terminate_threshold,
+                    penalty=self._early_terminate_penalty,
+                )
             if self._optical_flow:
                 self.env = OpticalFlowObservation(
                     self.env,

@@ -1,5 +1,7 @@
 from .CropObservation import CropObservation
 from .CropObservationVec import CropObservationVec
+from .EarlyTerminate import EarlyTerminate
+from .EarlyTerminateVec import EarlyTerminateVec
 from .EdgeAntialiasObservation import EdgeAntialiasObservation
 from .EdgeAntialiasObservationVec import EdgeAntialiasObservationVec
 from .GaussianAntialiasObservation import GaussianAntialiasObservation

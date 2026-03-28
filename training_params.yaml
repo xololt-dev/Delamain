@@ -14,6 +14,9 @@ env:
   antialiasing: "NONE"
   optical_flow: False
   crop_size: 84
+  early_terminate:
+    threshold: 5.0  # None = disabled, number = enabled
+    penalty: 0.0
   mode: "train"
   device:
   # device: "CPU"

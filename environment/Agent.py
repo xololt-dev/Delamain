@@ -28,7 +28,7 @@ class Agent:
 
         self.device = kwargs.get(
             "device", "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        ).lower()
 
         self.optimizer = None
         self.scheduler = None
