@@ -10,9 +10,11 @@ class SkipFrame(gym.Wrapper):
         env (gymnasium.Env) : The environment to apply the wrapper to.
 
         skip (int) : The number of frames to skip.
+
+        channels (int): Number of channels per frame (e.g. 1 for greyscale, 3 for HSL/RGB).
     """
 
-    def __init__(self, env, skip, channels=3):
+    def __init__(self, env: gym.Env, skip: int, channels: int = 3):
         super().__init__(env)
         self._skip = skip
         self._channels = channels

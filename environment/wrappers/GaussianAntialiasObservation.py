@@ -19,12 +19,10 @@ class GaussianAntialiasObservation(gym.Wrapper):
         sigma (float)       : Standard deviation of the Gaussian. Default 0.8.
     """
 
-    def __init__(self, env, kernel_size=3, sigma=0.8):
+    def __init__(self, env: gym.Env, kernel_size: int = 3, sigma: float = 0.8):
         super().__init__(env)
         h, w, c = env.observation_space.shape
-        self.observation_space = Box(
-            low=0, high=255, shape=(h, w, c), dtype=np.uint8
-        )
+        self.observation_space = Box(low=0, high=255, shape=(h, w, c), dtype=np.uint8)
         self._kernel_size = kernel_size
         self._sigma = sigma
 
@@ -73,7 +71,13 @@ class GaussianAntialiasObservation(gym.Wrapper):
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        return self._antialias(obs, self._kernel_size, self._sigma), reward, terminated, truncated, info
+        return (
+            self._antialias(obs, self._kernel_size, self._sigma),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)

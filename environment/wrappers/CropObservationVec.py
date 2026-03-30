@@ -23,7 +23,9 @@ class CropObservationVec(gym.vector.VectorWrapper):
         target_w (int)                   : Target width. Default 84.
     """
 
-    def __init__(self, env: gym.vector.VectorEnv, target_h=84, target_w=84):
+    def __init__(
+        self, env: gym.vector.VectorEnv, target_h: int = 84, target_w: int = 84
+    ):
         super().__init__(env)
         n = env.observation_space.shape[0]
         h, w = env.observation_space.shape[1:3]

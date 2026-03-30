@@ -16,7 +16,7 @@ class EarlyTerminate(gym.Wrapper):
             triggers. Default is 0.0 (no penalty).
     """
 
-    def __init__(self, env, threshold, penalty=0.0):
+    def __init__(self, env: gym.Env, threshold: float, penalty: float = 0.0):
         super().__init__(env)
         self._threshold = threshold
         self._penalty = penalty

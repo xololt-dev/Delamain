@@ -16,12 +16,10 @@ class HSLObservation(gym.Wrapper):
         env (gymnasium.Env) : The environment to apply the wrapper to.
     """
 
-    def __init__(self, env):
+    def __init__(self, env: gym.Env):
         super().__init__(env)
         h, w = env.observation_space.shape[:2]
-        self.observation_space = Box(
-            low=0, high=255, shape=(h, w, 3), dtype=np.uint8
-        )
+        self.observation_space = Box(low=0, high=255, shape=(h, w, 3), dtype=np.uint8)
 
     @staticmethod
     def _to_hsl(obs: np.ndarray) -> np.ndarray:

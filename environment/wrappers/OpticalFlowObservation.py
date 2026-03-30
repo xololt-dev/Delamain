@@ -21,16 +21,14 @@ class OpticalFlowObservation(gym.Wrapper):
                               Must match the channels parameter passed to SkipFrame.
     """
 
-    def __init__(self, env, skip, channels):
+    def __init__(self, env: gym.Env, skip: int, channels: int):
         super().__init__(env)
         h, w = env.observation_space.shape[:2]
         self._skip = skip
         self._channels = channels
 
         self.observation_space = Box(
-            low=0, high=255,
-            shape=(h, w, channels + 2),
-            dtype=np.uint8
+            low=0, high=255, shape=(h, w, channels + 2), dtype=np.uint8
         )
 
     @staticmethod
@@ -41,7 +39,9 @@ class OpticalFlowObservation(gym.Wrapper):
         return np.dot(frame[..., :3], [0.299, 0.587, 0.114]).astype(np.float32)
 
     @staticmethod
-    def _compute_flow(oldest: np.ndarray, newest: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _compute_flow(
+        oldest: np.ndarray, newest: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Compute dense optical flow between two greyscale frames using Farneback.
 
@@ -55,7 +55,9 @@ class OpticalFlowObservation(gym.Wrapper):
         newest_u8 = np.clip(newest_grey, 0, 255).astype(np.uint8)
 
         flow = cv2.calcOpticalFlowFarneback(
-            oldest_u8, newest_u8, None,
+            oldest_u8,
+            newest_u8,
+            None,
             pyr_scale=0.5,
             levels=1,
             winsize=15,
@@ -84,11 +86,19 @@ class OpticalFlowObservation(gym.Wrapper):
 
         dx, dy = OpticalFlowObservation._compute_flow(oldest, newest)
 
-        return np.concatenate([newest, dx[..., np.newaxis], dy[..., np.newaxis]], axis=-1)
+        return np.concatenate(
+            [newest, dx[..., np.newaxis], dy[..., np.newaxis]], axis=-1
+        )
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        return self._transform_single(obs, self._channels), reward, terminated, truncated, info
+        return (
+            self._transform_single(obs, self._channels),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)

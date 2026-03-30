@@ -18,7 +18,12 @@ class EdgeAntialiasObservationVec(gym.vector.VectorWrapper):
         strength (float)                 : Blend strength (0-1). Default 0.5.
     """
 
-    def __init__(self, env: gym.vector.VectorEnv, edge_threshold=0.08, strength=0.5):
+    def __init__(
+        self,
+        env: gym.vector.VectorEnv,
+        edge_threshold: float = 0.08,
+        strength: float = 0.5,
+    ):
         super().__init__(env)
         n = env.observation_space.shape[0]
         h, w, c = env.observation_space.shape[1:]

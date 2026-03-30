@@ -20,12 +20,12 @@ class EdgeAntialiasObservation(gym.Wrapper):
         strength (float)        : Blend strength (0-1). 0 = no effect, 1 = full blend. Default 0.5.
     """
 
-    def __init__(self, env, edge_threshold=0.08, strength=0.5):
+    def __init__(
+        self, env: gym.Env, edge_threshold: float = 0.08, strength: float = 0.5
+    ):
         super().__init__(env)
         h, w, c = env.observation_space.shape
-        self.observation_space = Box(
-            low=0, high=255, shape=(h, w, c), dtype=np.uint8
-        )
+        self.observation_space = Box(low=0, high=255, shape=(h, w, c), dtype=np.uint8)
         self._edge_threshold = edge_threshold
         self._strength = strength
 
@@ -34,7 +34,11 @@ class EdgeAntialiasObservation(gym.Wrapper):
         float_obs = obs.astype(np.float64)
 
         # Compute luminance (BT.601)
-        lum = 0.299 * float_obs[..., 0] + 0.587 * float_obs[..., 1] + 0.114 * float_obs[..., 2]
+        lum = (
+            0.299 * float_obs[..., 0]
+            + 0.587 * float_obs[..., 1]
+            + 0.114 * float_obs[..., 2]
+        )
 
         # Luminance differences with right and bottom neighbors
         diff_right = np.abs(lum[:, 1:] - lum[:, :-1])
@@ -44,7 +48,7 @@ class EdgeAntialiasObservation(gym.Wrapper):
 
         # Edge maps: True where luminance difference exceeds threshold
         edge_h = diff_right > threshold  # (H, W-1)
-        edge_v = diff_down > threshold   # (H-1, W)
+        edge_v = diff_down > threshold  # (H-1, W)
 
         result = float_obs.copy()
 
@@ -78,7 +82,13 @@ class EdgeAntialiasObservation(gym.Wrapper):
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        return self._antialias(obs, self._edge_threshold, self._strength), reward, terminated, truncated, info
+        return (
+            self._antialias(obs, self._edge_threshold, self._strength),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
     def reset(self, seed=None, options=None):
         obs, info = self.env.reset(seed=seed, options=options)

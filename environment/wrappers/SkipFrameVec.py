@@ -14,6 +14,8 @@ class SkipFrameVec(gym.vector.VectorWrapper):
         env (gymnasium.vector.VectorEnv) : The vector environments to apply the wrapper to.
 
         skip (int) : The number of frames to skip.
+
+        channels (int): Number of channels per frame (e.g. 1 for greyscale, 3 for HSL/RGB).
     """
 
     def __init__(self, env: gym.vector.VectorEnv, skip: int, channels: int = 3):
@@ -22,12 +24,8 @@ class SkipFrameVec(gym.vector.VectorWrapper):
         self._channels = channels
         n = env.observation_space.shape[0]
         h, w = env.observation_space.shape[1:3]
-        self.frames = np.zeros(
-            (n, h, w, skip * channels), dtype=np.uint8
-        )
-        self.rewards = np.zeros(
-            (n, skip), dtype=np.float32
-        )
+        self.frames = np.zeros((n, h, w, skip * channels), dtype=np.uint8)
+        self.rewards = np.zeros((n, skip), dtype=np.float32)
 
     def step(self, actions: ActType):
         # Executes the action for the specified number of frames, accumulating rewards.

@@ -17,7 +17,7 @@ env:
   early_terminate:
     threshold: 5.0 # None = disabled, number = enabled
     penalty: 0.0
-  clip_rewards: False # clips each frame reward to [-1, 1], disabled during eval
+  clip_rewards: False
   repeat_penalty:
     enabled: False
     penalty: 0.05 # amount subtracted per step once threshold met

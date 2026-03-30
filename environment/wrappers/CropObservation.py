@@ -22,14 +22,14 @@ class CropObservation(gym.Wrapper):
         target_w (int)      : Target width. Default 84.
     """
 
-    def __init__(self, env, target_h=84, target_w=84):
+    def __init__(self, env: gym.Env, target_h: int = 84, target_w: int = 84):
         super().__init__(env)
         h, w = env.observation_space.shape[:2]
         c = env.observation_space.shape[2]
 
-        assert target_h <= h and target_w <= w, (
-            f"Target size ({target_h}, {target_w}) exceeds observation size ({h}, {w})"
-        )
+        assert (
+            target_h <= h and target_w <= w
+        ), f"Target size ({target_h}, {target_w}) exceeds observation size ({h}, {w})"
 
         self._crop_top = 0
         self._crop_bottom = h - target_h

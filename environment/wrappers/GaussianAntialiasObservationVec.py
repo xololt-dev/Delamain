@@ -19,7 +19,9 @@ class GaussianAntialiasObservationVec(gym.vector.VectorWrapper):
         sigma (float)                    : Standard deviation of the Gaussian. Default 0.8.
     """
 
-    def __init__(self, env: gym.vector.VectorEnv, kernel_size=3, sigma=0.8):
+    def __init__(
+        self, env: gym.vector.VectorEnv, kernel_size: int = 3, sigma: float = 0.8
+    ):
         super().__init__(env)
         n = env.observation_space.shape[0]
         h, w, c = env.observation_space.shape[1:]
