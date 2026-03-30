@@ -1,3 +1,5 @@
+from .ClipReward import ClipReward
+from .ClipRewardVec import ClipRewardVec
 from .CropObservation import CropObservation
 from .CropObservationVec import CropObservationVec
 from .EarlyTerminate import EarlyTerminate
@@ -12,5 +14,7 @@ from .HSLObservation import HSLObservation
 from .HSLObservationVec import HSLObservationVec
 from .OpticalFlowObservation import OpticalFlowObservation
 from .OpticalFlowObservationVec import OpticalFlowObservationVec
+from .RepeatActionPenalty import RepeatActionPenalty
+from .RepeatActionPenaltyVec import RepeatActionPenaltyVec
 from .SkipFrame import SkipFrame
 from .SkipFrameVec import SkipFrameVec

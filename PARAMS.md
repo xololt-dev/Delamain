@@ -36,6 +36,34 @@ Parameters file used for setting up the eval / training environment is written i
     - boolean
     - enables optical flow wrapper (dx, dy channels added after SkipFrame)
     - default: False
+  - early_terminate
+    - threshold
+      - float | None
+      - if set, terminates episode when cumulative reward drops below peak by this amount
+      - default: None
+    - penalty
+      - float
+      - penalty subtracted from reward on early termination
+      - default: 0.0
+  - clip_rewards
+    - boolean
+    - clips each individual frame reward to [-1, 1] range (before SkipFrame accumulation)
+    - automatically disabled during eval mode
+    - default: False
+  - repeat_penalty
+    - enabled
+      - boolean
+      - default: False
+    - penalty
+      - float
+      - amount subtracted from reward each step once repetition threshold is met
+      - default: 0.05
+    - thresholds
+      - dict[int, int]
+      - mapping of action index to consecutive repeats required before penalty kicks in
+      - actions not listed are never penalized
+      - discrete actions: 0=noop, 1=steer_left, 2=steer_right, 3=gas, 4=brake
+    - automatically disabled during eval mode
   - mode
     - string
     - options: 'train', 'eval', None

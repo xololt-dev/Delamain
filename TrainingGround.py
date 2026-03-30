@@ -26,6 +26,10 @@ from environment.wrappers import (
     GreyscaleObservationVec,
     CropObservation,
     CropObservationVec,
+    ClipReward,
+    ClipRewardVec,
+    RepeatActionPenalty,
+    RepeatActionPenaltyVec,
     SkipFrame,
     SkipFrameVec,
     OpticalFlowObservation,
@@ -102,6 +106,13 @@ class TrainingGround:
         _et = yamlValues["env"].get("early_terminate", {})
         self._early_terminate_threshold: float | None = _et.get("threshold", None)
         self._early_terminate_penalty: float = _et.get("penalty", 0.0)
+        self._clip_rewards: bool = yamlValues["env"].get("clip_rewards", False)
+        self._clip_reward_wrapper = None
+        _rp = yamlValues["env"].get("repeat_penalty", {})
+        self._repeat_penalty_enabled: bool = _rp.get("enabled", False)
+        self._repeat_penalty_thresholds: dict[int, int] = _rp.get("thresholds", {})
+        self._repeat_penalty_amount: float = _rp.get("penalty", 0.05)
+        self._repeat_penalty_wrapper = None
 
         self.seed = yamlValues["train"].get("seed", None)
         if self.seed is not None:
@@ -147,10 +158,20 @@ class TrainingGround:
                 case _:
                     pass
 
+            if self._clip_rewards and self.driver.load_state != "eval":
+                self._clip_reward_wrapper = ClipRewardVec(self.env)
+                self.env = self._clip_reward_wrapper
             self.env = SkipFrameVec(
                 self.env,
                 skip=self._skip_frames,
             )
+            if self._repeat_penalty_enabled and self.driver.load_state != "eval":
+                self._repeat_penalty_wrapper = RepeatActionPenaltyVec(
+                    self.env,
+                    thresholds={int(k): int(v) for k, v in self._repeat_penalty_thresholds.items()},
+                    penalty=self._repeat_penalty_amount,
+                )
+                self.env = self._repeat_penalty_wrapper
             if self._early_terminate_threshold is not None:
                 print("EarlyTerminateVec")
                 self.env = EarlyTerminateVec(
@@ -197,7 +218,17 @@ class TrainingGround:
                 case _:
                     pass
 
+            if self._clip_rewards and self.driver.load_state != "eval":
+                self._clip_reward_wrapper = ClipReward(self.env)
+                self.env = self._clip_reward_wrapper
             self.env = SkipFrame(self.env, skip=self._skip_frames)
+            if self._repeat_penalty_enabled and self.driver.load_state != "eval":
+                self._repeat_penalty_wrapper = RepeatActionPenalty(
+                    self.env,
+                    thresholds={int(k): int(v) for k, v in self._repeat_penalty_thresholds.items()},
+                    penalty=self._repeat_penalty_amount,
+                )
+                self.env = self._repeat_penalty_wrapper
             if self._early_terminate_threshold is not None:
                 self.env = EarlyTerminate(
                     self.env,
