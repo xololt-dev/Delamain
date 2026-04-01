@@ -5,8 +5,14 @@ import os
 import csv
 
 import torch
-from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage, LazyTensorStorage
+from torchrl.data import (
+    TensorDictReplayBuffer,
+    LazyMemmapStorage,
+    LazyTensorStorage,
+    PrioritizedReplayBuffer,
+)
 from tensordict import TensorDict
+from functools import partial
 
 from .Agent import Agent
 
@@ -36,12 +42,22 @@ class AgentDQN(Agent):
         self.skip_frames = skip_frames
 
         self.buffer_size = buffer_size
+        _pb = kwargs.get("prioritized_buffer", {})
+        Buffer = (
+            partial(
+                PrioritizedReplayBuffer,
+                alpha=_pb.get("alpha"),
+                beta=_pb.get("beta"),
+            )
+            if _pb.get("enabled", False)
+            else TensorDictReplayBuffer
+        )
         if self.device == "cuda":
-            self.buffer = TensorDictReplayBuffer(
+            self.buffer = Buffer(
                 storage=LazyTensorStorage(buffer_size, device=self.device)
             )
         else:
-            self.buffer = TensorDictReplayBuffer(
+            self.buffer = Buffer(
                 storage=LazyMemmapStorage(buffer_size, device=self.device)
             )
 

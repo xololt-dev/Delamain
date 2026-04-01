@@ -90,7 +90,7 @@ class TrainingGround:
             yamlValues["train"].get("algorithm", "DQN")
         ]
         assert not yamlValues["env"].get(
-            "continous", False
+            "continuous", False
         ), "Currently only discrete action space available!"
         self.vec: bool = yamlValues["env"].get("vec", False)
         self.observation: Observations = Observations[
@@ -113,6 +113,11 @@ class TrainingGround:
         self._repeat_penalty_thresholds: dict[int, int] = _rp.get("thresholds", {})
         self._repeat_penalty_amount: float = _rp.get("penalty", 0.05)
         self._repeat_penalty_wrapper = None
+        _pb = yamlValues["env"].get("prioritized_buffer", {})
+        self._prioritized_buffer_enabled: bool = _pb.get("enabled", False)
+        self._prioritized_buffer_alpha: float = _pb.get("alpha", 0.7)
+        self._prioritized_buffer_beta: float = _pb.get("beta", 0.5)
+        self._prioritized_buffer_eps: float | None = _pb.get("eps", None)
 
         self.seed = yamlValues["train"].get("seed", None)
         if self.seed is not None:
@@ -158,17 +163,20 @@ class TrainingGround:
                 case _:
                     pass
 
-            if self._clip_rewards and self.driver.load_state != "eval":
+            if self._clip_rewards and yamlValues["env"]["mode"] != "eval":
                 self._clip_reward_wrapper = ClipRewardVec(self.env)
                 self.env = self._clip_reward_wrapper
             self.env = SkipFrameVec(
                 self.env,
                 skip=self._skip_frames,
             )
-            if self._repeat_penalty_enabled and self.driver.load_state != "eval":
+            if self._repeat_penalty_enabled and yamlValues["env"]["mode"] != "eval":
                 self._repeat_penalty_wrapper = RepeatActionPenaltyVec(
                     self.env,
-                    thresholds={int(k): int(v) for k, v in self._repeat_penalty_thresholds.items()},
+                    thresholds={
+                        int(k): int(v)
+                        for k, v in self._repeat_penalty_thresholds.items()
+                    },
                     penalty=self._repeat_penalty_amount,
                 )
                 self.env = self._repeat_penalty_wrapper
@@ -218,14 +226,17 @@ class TrainingGround:
                 case _:
                     pass
 
-            if self._clip_rewards and self.driver.load_state != "eval":
+            if self._clip_rewards and yamlValues["env"]["mode"] != "eval":
                 self._clip_reward_wrapper = ClipReward(self.env)
                 self.env = self._clip_reward_wrapper
             self.env = SkipFrame(self.env, skip=self._skip_frames)
-            if self._repeat_penalty_enabled and self.driver.load_state != "eval":
+            if self._repeat_penalty_enabled and yamlValues["env"]["mode"] != "eval":
                 self._repeat_penalty_wrapper = RepeatActionPenalty(
                     self.env,
-                    thresholds={int(k): int(v) for k, v in self._repeat_penalty_thresholds.items()},
+                    thresholds={
+                        int(k): int(v)
+                        for k, v in self._repeat_penalty_thresholds.items()
+                    },
                     penalty=self._repeat_penalty_amount,
                 )
                 self.env = self._repeat_penalty_wrapper
@@ -287,7 +298,7 @@ class TrainingGround:
                 lr_decay=yamlValues["train"]["lr_decay"],
                 buffer_size=yamlValues["train"]["buffer_size"],
                 skip_frames=self._skip_frames * yamlValues["reporting"]["when2learn"],
-                play_n_episodes=yamlValues["train"]["play_n_episodes"],
+                play_n_episodes=self.play_n_episodes,
                 vec=self.vec,
                 device=yamlValues["env"].get("device", None),
             )

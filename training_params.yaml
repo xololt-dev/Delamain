@@ -5,7 +5,7 @@ model:
   # file_name: 'Delamain_21_11.pt'
   # file_name: 'Delamain_732290.pt'
 env:
-  continous: False
+  continuous: False
   random_colors: False
   skip_frames: 4
   vec: True
@@ -27,6 +27,11 @@ env:
       3: 5 # gas
       4: 2 # brake
       # action 0 (noop) not listed = not penalized
+  prioritized_buffer:
+    enabled: True
+    alpha: 0.7
+    beta: 0.5
+    eps:
   mode: "train"
   device:
   # device: "CPU"

@@ -14,12 +14,12 @@ RUN apt-get update && apt-get install -y swig \
 COPY delamain_req.txt /Delamain/
 RUN pip3 install -r /Delamain/delamain_req.txt
 
-COPY alternative_models /Delamain/alternative_models
-COPY environment /Delamain/environment
-COPY tests /Delamain/tests
 COPY main.py /Delamain/
-COPY training_params.yaml /Delamain/
+COPY alternative_models /Delamain/alternative_models
+COPY tests /Delamain/tests
+COPY environment /Delamain/environment
 COPY TrainingGround.py /Delamain/
+COPY training_params.yaml /Delamain/
 
 RUN mkdir -p /Delamain/training/logs
 
