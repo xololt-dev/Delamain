@@ -296,6 +296,7 @@ class TrainingGround:
                 epsilon_decay=yamlValues["train"]["epsilon_decay"],
                 lr=yamlValues["train"]["lr"],
                 lr_decay=yamlValues["train"]["lr_decay"],
+                n_step=yamlValues["train"].get("n_step", 1),
                 buffer_size=yamlValues["train"]["buffer_size"],
                 skip_frames=self._skip_frames * yamlValues["reporting"]["when2learn"],
                 play_n_episodes=self.play_n_episodes,

@@ -45,6 +45,7 @@ train:
   epsilon_decay: 0.9999925
   lr: 0.002
   lr_decay: 0.9999925
+  n_step: 4
   buffer_size: 42500
   seed:
   # buffer_size: 77500

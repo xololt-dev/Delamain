@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import numpy as np
 import os
 import csv
@@ -29,6 +30,7 @@ class AgentDQN(Agent):
         epsilon_decay: float = 0.9999925,
         lr: float = 0.0002,
         lr_decay: float = 1.0,
+        n_step: int = 1,
         buffer_size: int = 300000,
         skip_frames: int = 4,
         play_n_episodes: int = 3000,
@@ -40,6 +42,8 @@ class AgentDQN(Agent):
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
         self.skip_frames = skip_frames
+        self.n_step = n_step
+        self.trajectory = deque()
 
         self.buffer_size = buffer_size
         _pb = kwargs.get("prioritized_buffer", {})
@@ -82,7 +86,7 @@ class AgentDQN(Agent):
         terminated: bool,
     ):
         """
-        Stores a transition in the replay buffer.
+        Stores a transition in the replay buffer using n-step returns.
 
         Parameters:
             state (numpy.ndarray | torch.Tensor) : The current state of
@@ -97,18 +101,85 @@ class AgentDQN(Agent):
 
             terminated (bool) : A boolean indicating whether the episode has ended.
         """
+        self.trajectory.append(
+            {
+                "state": state,
+                "action": action,
+                "reward": reward,
+                "new_state": new_state,
+                "terminated": terminated,
+            }
+        )
+
+        if len(self.trajectory) >= self.n_step:
+            self._emit_n_step()
+
+        if terminated:
+            self._flush_trajectory()
+
+    def _emit_n_step(self):
+        """
+        Emits the oldest transition in the trajectory as an n-step return.
+        """
+        state = self.trajectory[0]["state"]
+        action = self.trajectory[0]["action"]
+        new_state = self.trajectory[self.n_step - 1]["new_state"]
+
+        n_step_return = 0.0
+        terminated = False
+
+        for i in range(self.n_step):
+            t = self.trajectory[i]
+            n_step_return += (self.gamma**i) * t["reward"]
+            if t["terminated"]:
+                terminated = True
+                break
+
         self.buffer.add(
             TensorDict(
                 {
                     "state": torch.as_tensor(state, dtype=torch.uint8),
                     "action": torch.as_tensor(action, dtype=torch.uint8),
-                    "reward": torch.as_tensor(reward, dtype=torch.float32),
+                    "reward": torch.as_tensor(n_step_return, dtype=torch.float32),
                     "new_state": torch.as_tensor(new_state, dtype=torch.uint8),
                     "terminated": torch.as_tensor(terminated, dtype=torch.bool),
                 },
                 batch_size=[],
             )
         )
+
+        for _ in range(self.n_step):
+            self.trajectory.popleft()
+
+    def _flush_trajectory(self):
+        """
+        Emits all remaining transitions when episode ends, with shorter returns.
+        """
+        while self.trajectory:
+            n = len(self.trajectory)
+
+            state = self.trajectory[0]["state"]
+            action = self.trajectory[0]["action"]
+            new_state = self.trajectory[-1]["new_state"]
+
+            n_step_return = 0.0
+            for i in range(n):
+                n_step_return += (self.gamma**i) * self.trajectory[i]["reward"]
+
+            self.buffer.add(
+                TensorDict(
+                    {
+                        "state": torch.as_tensor(state, dtype=torch.uint8),
+                        "action": torch.as_tensor(action, dtype=torch.uint8),
+                        "reward": torch.as_tensor(n_step_return, dtype=torch.float32),
+                        "new_state": torch.as_tensor(new_state, dtype=torch.uint8),
+                        "terminated": torch.as_tensor(True, dtype=torch.bool),
+                    },
+                    batch_size=[],
+                )
+            )
+
+            self.trajectory.popleft()
 
     def get_samples(self, batch_size: int):
         """
@@ -198,7 +269,9 @@ class AgentDQN(Agent):
             tar_action_values = self.policy_net(new_states)
         td_tar = (
             rewards
-            + (1 - terminateds.float()) * self.gamma * tar_action_values.max(1)[0]
+            + (1 - terminateds.float())
+            * self.gamma**self.n_step
+            * tar_action_values.max(1)[0]
         )
 
         loss = self.loss_fn(td_est, td_tar)

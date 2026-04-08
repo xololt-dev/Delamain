@@ -93,6 +93,9 @@ Parameters file used for setting up the eval / training environment is written i
     - float
   - lr_decay
     - float
+  - n_step
+    - int | None
+    - None == 1
   - buffer_size
     - int
   - seed

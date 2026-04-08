@@ -18,6 +18,7 @@ class AgentDDQN(AgentDQN):
         epsilon_decay: float = 0.9999925,
         lr: float = 0.0002,
         lr_decay: float = 1.0,
+        n_step: int = 1,
         buffer_size: int = 300000,
         skip_frames: int = 4,
         play_n_episodes: int = 3000,
@@ -33,6 +34,7 @@ class AgentDDQN(AgentDQN):
             epsilon_decay,
             lr,
             lr_decay,
+            n_step,
             buffer_size,
             skip_frames,
             **kwargs,
@@ -63,7 +65,7 @@ class AgentDDQN(AgentDQN):
         td_tar = (
             rewards
             + (1 - terminateds.float())
-            * self.gamma
+            * self.gamma**self.n_step
             * tar_action_values[np.arange(batch_size), next_actions]
         )
 
