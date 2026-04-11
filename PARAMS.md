@@ -26,7 +26,7 @@ Parameters file used for setting up the eval / training environment is written i
     - int
   - observation
     - string
-    - options: "RGB", "HSL", "GREY"
+    - options: "RGB", "HSL", "GREYSCALE"
     - default: "RGB"
   - antialiasing
     - string

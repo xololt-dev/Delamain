@@ -199,8 +199,13 @@ class AgentDQN(Agent):
             new_states (torch.Tensor) : A batch of sampled next states.
 
             terminateds (torch.Tensor) : A batch of sampled termination flags.
+
+            info : Buffer info
         """
-        batch = self.buffer.sample(batch_size)
+        if len(self.buffer) < batch_size:
+            return None, None, None, None, None, None
+
+        batch, info = self.buffer.sample(batch_size, return_info=True)
         states = batch.get("state").to(dtype=torch.uint8, device=self.device)
         # states = batch.get('state').type(torch.Tensor).to(self.device)
         new_states = batch.get("new_state").to(dtype=torch.uint8, device=self.device)
@@ -210,7 +215,7 @@ class AgentDQN(Agent):
             batch.get("reward").squeeze().to(dtype=torch.float32, device=self.device)
         )
         terminateds = batch.get("terminated").squeeze().to(self.device)
-        return states, actions, rewards, new_states, terminateds
+        return states, actions, rewards, new_states, terminateds, info
 
     def take_action(self, state: np.ndarray | torch.Tensor):
         """
@@ -261,7 +266,11 @@ class AgentDQN(Agent):
             loss (torch.Tensor) : The computed loss for the batch.
         """
         self.n_updates += 1
-        states, actions, rewards, new_states, terminateds = self.get_samples(batch_size)
+        states, actions, rewards, new_states, terminateds, info = self.get_samples(
+            batch_size
+        )
+        if states == None:
+            return 0.0, 0.0
 
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
@@ -278,6 +287,7 @@ class AgentDQN(Agent):
         self.optimizer.zero_grad()
         loss.backward()
         # torch.nn.utils.clip_grad_value_(self.target_net.parameters(), 1.0)
+        self.buffer.update_priority(info["index"], loss)
         self.optimizer.step()
         self.scheduler.step()
         loss = loss.detach().cpu().item()

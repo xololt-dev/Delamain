@@ -55,7 +55,11 @@ class AgentDDQN(AgentDQN):
             loss (torch.Tensor) : The computed loss for the batch.
         """
         self.n_updates += 1
-        states, actions, rewards, new_states, terminateds = self.get_samples(batch_size)
+        states, actions, rewards, new_states, terminateds, info = self.get_samples(
+            batch_size
+        )
+        if states == None:
+            return 0.0, 0.0
 
         action_values = self.target_net(states)
         td_est = action_values[np.arange(batch_size), actions]
@@ -72,6 +76,7 @@ class AgentDDQN(AgentDQN):
         loss = self.loss_fn(td_est, td_tar)
         self.optimizer.zero_grad()
         loss.backward()
+        self.buffer.update_priority(info["index"], loss)
         self.optimizer.step()
         self.scheduler.step()
         loss = loss.detach().cpu().item()

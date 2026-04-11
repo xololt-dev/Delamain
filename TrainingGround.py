@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import time
 import random
 
-from functools import partial
+from functools import lru_cache, partial
 
 from environment.AgentDDQN import AgentDDQN
 from environment.AgentDQN import AgentDQN
@@ -114,10 +114,10 @@ class TrainingGround:
         self._repeat_penalty_amount: float = _rp.get("penalty", 0.05)
         self._repeat_penalty_wrapper = None
         _pb = yamlValues["env"].get("prioritized_buffer", {})
-        self._prioritized_buffer_enabled: bool = _pb.get("enabled", False)
-        self._prioritized_buffer_alpha: float = _pb.get("alpha", 0.7)
-        self._prioritized_buffer_beta: float = _pb.get("beta", 0.5)
-        self._prioritized_buffer_eps: float | None = _pb.get("eps", None)
+        # self._prioritized_buffer_enabled: bool = _pb.get("enabled", False)
+        # self._prioritized_buffer_alpha: float = _pb.get("alpha", 0.7)
+        # self._prioritized_buffer_beta: float = _pb.get("beta", 0.5)
+        # self._prioritized_buffer_eps: float | None = _pb.get("eps", None)
 
         self.seed = yamlValues["train"].get("seed", None)
         if self.seed is not None:
@@ -191,7 +191,7 @@ class TrainingGround:
                 self.env = OpticalFlowObservationVec(
                     self.env,
                     skip=self._skip_frames,
-                    channels=3,  # TODO: greyscale or RGB/HSL
+                    channels=self._get_observation_channels(),
                 )
         else:
             self.env = gym.make(
@@ -250,7 +250,7 @@ class TrainingGround:
                 self.env = OpticalFlowObservation(
                     self.env,
                     skip=self._skip_frames,
-                    channels=3,  # TODO: greyscale or RGB/HSL
+                    channels=self._get_observation_channels(),
                 )
 
             if yamlValues["eval"]["video"]:
@@ -302,6 +302,7 @@ class TrainingGround:
                 play_n_episodes=self.play_n_episodes,
                 vec=self.vec,
                 device=yamlValues["env"].get("device", None),
+                prioritized_buffer=_pb,
             )
             self.driver = driver_class(
                 self.state.shape,
@@ -325,11 +326,16 @@ class TrainingGround:
 
     def _get_input_channels(self) -> int:
         """Compute the number of input channels based on the wrapper chain."""
-        base_channels = 3  # HSLObservation always outputs 3 channels
+        base_channels = self._get_observation_channels()
+        # (1 if self.observation == Observations.GREYSCALE else 3)  # HSLObservation always outputs 3 channels
 
         if self._optical_flow:
-            return base_channels + 2  # HSL channels + dx + dy
+            return base_channels + 2  # RGB/HSL/GREY channels + dx + dy
         return self._skip_frames * base_channels
+
+    @lru_cache(maxsize=1)
+    def _get_observation_channels(self) -> int:
+        return 1 if self.observation == Observations.GREYSCALE else 3
 
     def parse_class_name(self, class_name: str | None, input_size: int = 96):
         match class_name:
@@ -470,14 +476,14 @@ class TrainingGround:
             self.episode_length_list.append(episode_length)
             self.episode_loss_list.append(np.mean(loss_list))
             self.episode_actions_in_row_list.append(np.mean(actions_in_row))
-            print("actions_in_row:", np.mean(actions_in_row))
+            # print("actions_in_row:", np.mean(actions_in_row))
 
             efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
             penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
             fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
 
             self.episode_fuel_efficiency_list.append(fuel_efficiency)
-            print(f"Fuel efficiency: {fuel_efficiency:.3f}")
+            # print(f"Fuel efficiency: {fuel_efficiency:.3f}")
 
             now_time = datetime.datetime.now()
             self.episode_date_list.append(now_time.date().strftime("%Y-%m-%d"))
@@ -837,7 +843,6 @@ class TrainingGround:
             penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
             fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
 
-            self.episode_fuel_efficiency_list.append(fuel_efficiency)
             print(f"Fuel efficiency: {fuel_efficiency:.3f}")
 
     def eval_vec(self):
@@ -904,7 +909,6 @@ class TrainingGround:
             penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
             fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
 
-            self.episode_fuel_efficiency_list.append(fuel_efficiency)
             print(f"Fuel efficiency: {fuel_efficiency:.3f}")
 
         # self.env.close()
