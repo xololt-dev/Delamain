@@ -48,6 +48,7 @@ train:
   n_step: 4
   buffer_size: 42500
   seed:
+  track_seed:
   # buffer_size: 77500
 eval:
   tracks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]

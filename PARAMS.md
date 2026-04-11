@@ -100,7 +100,11 @@ Parameters file used for setting up the eval / training environment is written i
     - int
   - seed
     - int | null
-    - if set, pins env + torch + numpy + random RNGs for full reproducibility
+    - if set, pins torch + numpy + random RNGs for full reproducibility
+    - default: null
+  - track_seed
+    - int | null
+    - if set, pins env for full reproducibility
     - default: null
 - eval:
   - tracks

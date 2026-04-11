@@ -120,6 +120,7 @@ class TrainingGround:
         # self._prioritized_buffer_eps: float | None = _pb.get("eps", None)
 
         self.seed = yamlValues["train"].get("seed", None)
+        self.track_seed = yamlValues["train"].get("track_seed", None)
         if self.seed is not None:
             torch.manual_seed(self.seed)
             np.random.seed(self.seed)
@@ -265,7 +266,7 @@ class TrainingGround:
                     ),  # Record every episode
                 )
 
-        self.state, info = self.env.reset(seed=self.seed)
+        self.state, info = self.env.reset(seed=self.track_seed)
         self.previous_state = self.state
         action_n = (
             self.env.single_action_space.n if self.vec else self.env.action_space.n
@@ -470,7 +471,7 @@ class TrainingGround:
                 if self.timestep_n % self.when2eval == 0 and self.report_type == "text":
                     self._eval_timestep()
 
-            self.state, info = self.env.reset(seed=self.seed)
+            self.state, info = self.env.reset(seed=self.track_seed)
 
             self.episode_reward_list.append(episode_reward)
             self.episode_length_list.append(episode_length)
@@ -640,7 +641,7 @@ class TrainingGround:
 
                     self._eval_timestep()
 
-            self.state, info = self.env.reset(seed=self.seed)
+            self.state, info = self.env.reset(seed=self.track_seed)
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(
@@ -726,7 +727,7 @@ class TrainingGround:
                         self.episode += 1
 
                 self.state, info = self.env.reset(
-                    seed=self.seed, options={"reset_mask": dones}
+                    seed=self.track_seed, options={"reset_mask": dones}
                 )
                 if not np.all(dones):
                     print(dones)
@@ -757,7 +758,7 @@ class TrainingGround:
             ):
                 self._eval_timestep()
 
-                self.state, info = self.env.reset(seed=self.seed)
+                self.state, info = self.env.reset(seed=self.track_seed)
 
             if self.report_type == "plot":
                 draw_check = Delamain.plot_reward(
@@ -887,17 +888,14 @@ class TrainingGround:
                     actions[action[0]] += 1
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
+                self.state = new_state
 
                 if self.vec:
                     episode_reward += reward[0]
+                    updating = not (terminated[0] or truncated[0])
                 else:
                     episode_reward += reward
-
-                self.state = new_state
-                if not self.vec:
                     updating = not (terminated or truncated)
-                else:
-                    updating = not (terminated[0] or truncated[0])
 
             print(f"Track seed: {seed}")
             print(f"    reward {episode_reward}")
