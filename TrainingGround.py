@@ -9,6 +9,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import time
 import random
+import platform
+import subprocess
+import os
 
 from functools import lru_cache, partial
 
@@ -18,6 +21,7 @@ from environment.AgentPPO import AgentPPO
 from environment.Algorithms import Algorithms
 from environment.Antialiasing import Antialiasing
 from environment.Observations import Observations
+from environment.Termination import TerminationReason
 
 from environment.wrappers import (
     HSLObservation,
@@ -79,6 +83,7 @@ class TrainingGround:
         self.episode_date_list = []
         self.episode_time_list = []
         self.episode_fuel_efficiency_list = []
+        self.episode_termination_reasons = []
         self.episode = 0
         self.timestep_n = 0
 
@@ -125,6 +130,10 @@ class TrainingGround:
             torch.manual_seed(self.seed)
             np.random.seed(self.seed)
             random.seed(self.seed)
+
+        # Track training start time and config save status
+        self._start_time = datetime.datetime.now()
+        self._yaml_config = yamlValues
 
         if self.vec:
             self.env = gym.make_vec(
@@ -316,6 +325,8 @@ class TrainingGround:
         if yamlValues["model"]["file_name"]:
             self.driver.load(self.MODELS_DIR, yamlValues["model"]["file_name"])
 
+        self._save_training_config()
+
     def init_reporting(self, section):
         self.when2learn = section.get("when2learn", 4)
         self.when2sync = section.get("when2sync", 5000)  # in timesteps
@@ -325,6 +336,47 @@ class TrainingGround:
         self.when2log = section.get("when2log", 10)  # in episodes
         self.report_type = section.get("report_type", "text")
 
+    def _get_system_info(self):
+        """Capture system and software version information"""
+        return {
+            "python_version": platform.python_version(),
+            "pytorch_version": str(torch.__version__),
+            "platform": platform.platform(),
+            "processor": platform.processor(),
+            "timestamp": datetime.datetime.now().isoformat(),
+        }
+
+    def _get_model_info(self):
+        """Get model architecture details and parameter counts"""
+        model = (
+            self.driver.policy_net
+            if hasattr(self.driver, "policy_net")
+            else self.driver.actor
+        )
+        total_params = int(sum(p.numel() for p in model.parameters()))
+        trainable_params = int(
+            sum(p.numel() for p in model.parameters() if p.requires_grad)
+        )
+
+        return {
+            "model_class": self.class_name,
+            "total_parameters": total_params,
+            "trainable_parameters": trainable_params,
+            "architecture_summary": str(model),
+        }
+
+    def _get_wrapper_chain_info(self):
+        """Capture the environment wrapper configuration"""
+        wrapper_info = []
+        env = self.env
+
+        # Try to detect wrapper chain
+        while hasattr(env, "env") and env.env is not None:
+            wrapper_info.append(type(env).__name__)
+            env = env.env
+
+        return wrapper_info
+
     def _get_input_channels(self) -> int:
         """Compute the number of input channels based on the wrapper chain."""
         base_channels = self._get_observation_channels()
@@ -333,6 +385,59 @@ class TrainingGround:
         if self._optical_flow:
             return base_channels + 2  # RGB/HSL/GREY channels + dx + dy
         return self._skip_frames * base_channels
+
+    def _save_training_config(self):
+        """Save complete training configuration to YAML file"""
+        config_data = {
+            "training_params": self._yaml_config,
+            "model_info": self._get_model_info(),
+            "environment": {
+                "name": self.ENVIRONMENT,
+                "wrapper_chain": self._get_wrapper_chain_info(),
+                "observation_space": str(self.state.shape),
+                "action_space_size": int(
+                    self.env.single_action_space.n
+                    if self.vec
+                    else self.env.action_space.n
+                ),
+                "observation_type": str(self.observation),
+                "antialiasing_type": str(self.antialiasing),
+                "optical_flow_enabled": bool(self._optical_flow),
+                "crop_size": (
+                    int(self._crop_size) if self._crop_size is not None else None
+                ),
+                "skip_frames": int(self._skip_frames),
+            },
+            "training_metadata": {
+                "start_time": self._start_time.isoformat(),
+                "algorithm": str(self.algorithm),
+                "vectorized": bool(self.vec),
+                "device": str(self.driver.device),
+                "batch_size": int(self.batch_n),
+                "total_episodes": int(self.play_n_episodes),
+            },
+            "system_info": self._get_system_info(),
+        }
+
+        try:
+            commit_hash = (
+                subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd="/home/xololt/Projekty/Delamain"
+                )
+                .decode("ascii")
+                .strip()
+            )
+            config_data["git_commit"] = commit_hash
+        except:
+            config_data["git_commit"] = "Not available"
+
+        config_filename = f"{self.class_name}_config.yaml"
+        config_path = os.path.join(self.driver.LOG_DIR, config_filename)
+
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+        print(f"Training configuration saved to {config_path}")
 
     @lru_cache(maxsize=1)
     def _get_observation_channels(self) -> int:
@@ -408,6 +513,7 @@ class TrainingGround:
             prev_action = None
             actions_in_row = [0]
             actions = np.zeros(5, dtype=np.uint8)
+            episode_termination_reason = None
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.get_lr())
 
@@ -432,6 +538,21 @@ class TrainingGround:
                     prev_action = action
                     if prev_action != None:
                         actions_in_row.append(0)
+
+                updating = not (terminated or truncated)
+                # Track termination reason when episode ends
+                if not updating:
+                    if hasattr(info, "get") and "lap_finished" in info:
+                        lap_finished = info["lap_finished"]
+                        if lap_finished:
+                            episode_termination_reason = TerminationReason.SUCCESS
+                        else:
+                            episode_termination_reason = TerminationReason.OFF_TRACK
+                    elif truncated and not terminated:
+                        episode_termination_reason = TerminationReason.TIMEOUT
+                    else:
+                        # Check for early termination or other cases
+                        episode_termination_reason = TerminationReason.EARLY_TERMINATION
 
                 # Pass log_prob only if using PPO
                 if self.algorithm == Algorithms.PPO:
@@ -479,6 +600,14 @@ class TrainingGround:
             self.episode_actions_in_row_list.append(np.mean(actions_in_row))
             # print("actions_in_row:", np.mean(actions_in_row))
 
+            if episode_termination_reason:
+                self.episode_termination_reasons.append(
+                    episode_termination_reason.value
+                )
+            else:
+                self.episode_termination_reasons.append(TerminationReason.UNKNOWN.value)
+            episode_termination_reason = None
+
             efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
             penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
             fuel_efficiency = (episode_reward * efficiency_bonus) / (penalty + 1.0)
@@ -525,6 +654,7 @@ class TrainingGround:
                 actions_in_row.append([0])
             actions.fill(0)
             updating = True
+            episode_termination_reasons = [None] * self.envs_num
 
             while updating:
                 self.timestep_n += 1
@@ -539,6 +669,29 @@ class TrainingGround:
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 rows = np.arange(len(action))
                 np.add.at(actions, (rows, action), 1)
+
+                # Track termination reasons for vectorized environment
+                if terminated.any() or truncated.any():
+                    if hasattr(info, "get") and "lap_finished" in info:
+                        lap_finished_array = info["lap_finished"]
+                        for i in range(len(lap_finished_array)):
+                            if terminated[i] or truncated[i]:
+                                if lap_finished_array[i]:
+                                    episode_termination_reasons[i] = (
+                                        TerminationReason.SUCCESS
+                                    )
+                                else:
+                                    episode_termination_reasons[i] = (
+                                        TerminationReason.OFF_TRACK
+                                    )
+                    # Handle timeout cases (truncated but not terminated)
+                    for i in range(self.envs_num):
+                        if (
+                            truncated[i]
+                            and not terminated[i]
+                            and episode_termination_reasons[i] is None
+                        ):
+                            episode_termination_reasons[i] = TerminationReason.TIMEOUT
 
                 for i in range(0, len(action)):
                     if prev_action[i] == action[i]:
@@ -592,6 +745,18 @@ class TrainingGround:
                         self.episode_actions_in_row_list.append(
                             np.mean(actions_in_row[i])
                         )
+
+                        # Store termination reason for this episode
+                        if episode_termination_reasons[i]:
+                            self.episode_termination_reasons.append(
+                                episode_termination_reasons[i]
+                            )
+                        else:
+                            self.episode_termination_reasons.append(
+                                TerminationReason.UNKNOWN
+                            )
+
+                        episode_termination_reasons[i] = None
                         prev_action[i] = None
                         actions_in_row[i] = [0]
 
@@ -981,5 +1146,6 @@ class TrainingGround:
             self.episode_lr_list,
             self.episode_actions_in_row_list,
             self.episode_fuel_efficiency_list,
+            self.episode_termination_reasons,
             log_filename=f"{self.class_name}_log_test.csv",
         )

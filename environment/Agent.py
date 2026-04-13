@@ -143,6 +143,7 @@ class Agent:
         lr_list: list,
         actions_in_row_list: list | None = None,
         fuel_efficiency_list: list | None = None,
+        termination_reasons_list: list | None = None,
         log_filename: str = "default_log.csv",
     ):
         """
@@ -168,6 +169,8 @@ class Agent:
 
             fuel_efficiency_list (list) : A list of fuel efficiency values recorded during training.
 
+            termination_reasons_list (list) : A list of termination reasons for each episode.
+
             log_filename (str) : The name of the CSV file to save the logs.
         """
         if not os.path.exists(self.LOG_DIR):
@@ -185,6 +188,8 @@ class Agent:
             rows.append(["actions_in_row"] + actions_in_row_list)
         if fuel_efficiency_list is not None:
             rows.append(["fuel_efficiency"] + fuel_efficiency_list)
+        if termination_reasons_list is not None:
+            rows.append(["termination_reasons"] + termination_reasons_list)
         with open(self.LOG_DIR + log_filename, "w") as csvfile:
             csvwriter = csv.writer(csvfile)
             csvwriter.writerows(rows)
