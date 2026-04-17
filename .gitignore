@@ -212,3 +212,6 @@ __marimo__/
 
 # OpenCode
 .opencode
+
+# Collected data
+.data

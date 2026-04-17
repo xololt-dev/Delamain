@@ -58,3 +58,6 @@ class DelamainBase(nn.Module):
     def get_params(self) -> int:
         total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         return total_params
+
+    def action_mode_switch(self) -> bool:
+        return False

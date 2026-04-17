@@ -44,6 +44,7 @@ class AgentPPO(Agent):
         self.actor.compile()
         # Alias actor to policy_net so TrainingGround's eval mode toggle doesn't break
         self.policy_net = self.actor
+        self.target_net = self.actor
 
         self.optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr, eps=1e-7)
         self.scheduler = torch.optim.lr_scheduler.MultiplicativeLR(

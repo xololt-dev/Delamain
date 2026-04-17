@@ -241,8 +241,12 @@ class AgentDQN(Agent):
             # Add batch dimension
             state_t = state_t.unsqueeze(0)
 
+            if self.target_net.action_mode_switch():
+                self.target_net.eval()
             action_values = self.target_net(state_t)
             action_idx = torch.argmax(action_values, axis=1).item()
+            if self.load_state == "train" and self.target_net.action_mode_switch():
+                self.target_net.train()
 
         if self.epsilon > self.epsilon_end:
             self.epsilon *= self.epsilon_decay

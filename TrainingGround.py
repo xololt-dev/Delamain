@@ -50,6 +50,7 @@ from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
+from alternative_models.MobileNetV4 import MobileNetV4
 
 # set up matplotlib
 is_ipython = "inline" in matplotlib.get_backend()
@@ -464,6 +465,11 @@ class TrainingGround:
                 return partial(
                     Delamain_2_6, in_channels=in_channels, input_size=input_size
                 )
+            case "MobileNet":
+                in_channels = self._get_input_channels()
+                return partial(
+                    MobileNetV4, in_channels=in_channels, input_size=input_size
+                )
             case _:
                 return partial(Delamain, input_size=input_size)
 
@@ -512,7 +518,7 @@ class TrainingGround:
             loss_list = []
             prev_action = None
             actions_in_row = [0]
-            actions = np.zeros(5, dtype=np.uint8)
+            actions = np.zeros(5, dtype=np.uint16)
             episode_termination_reason = None
             self.episode_epsilon_list.append(self.driver.epsilon)
             self.episode_lr_list.append(self.driver.get_lr())
@@ -643,7 +649,7 @@ class TrainingGround:
         last_loss = 0.0
         prev_action = np.full(self.envs_num, None)
         actions_in_row = []
-        actions = np.zeros((self.envs_num, 5), dtype=np.uint8)
+        actions = np.zeros((self.envs_num, 5), dtype=np.uint16)
 
         while self.episode <= self.play_n_episodes:
             self.episode += 1
@@ -1127,10 +1133,12 @@ class TrainingGround:
         curr_epsl = self.driver.epsilon
         self.driver.epsilon_end = self.driver.epsilon = 0.0
         self.driver.policy_net.eval()
+        self.driver.target_net.eval()
         self.driver.load_state = "eval"
         with torch.no_grad():
             self.eval()
         self.driver.load_state = "train"
+        self.driver.target_net.train()
         self.driver.policy_net.train()
         self.driver.epsilon_end = epsl_end
         self.driver.epsilon = curr_epsl
