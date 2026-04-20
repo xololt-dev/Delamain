@@ -32,6 +32,8 @@ class AgentPPO(Agent):
         # PPO specific hyperparameters
         self.eps_clip = 0.2
         self.K_epochs = 4
+        self.entropy_coeff = 0.01
+        self.critic_coeff = 0.5
 
         # Dummy variables to prevent TrainingGround logging/eval from crashing
         self.epsilon = 0.0
@@ -101,7 +103,11 @@ class AgentPPO(Agent):
 
     def take_action_vec(self, state: torch.Tensor):
         with torch.no_grad():
+            if self.target_net.action_mode_switch():
+                self.target_net.eval()
             logits, state_values = self.actor(state)
+            if self.load_state == "train" and self.target_net.action_mode_switch():
+                self.target_net.train()
             dist = Categorical(logits=logits)
 
             # Deterministic evaluation if in eval mode, otherwise sample
@@ -160,7 +166,6 @@ class AgentPPO(Agent):
             entropy = dist.entropy()
 
             # Critic evaluation
-            # state_values = self.critic_head(self.critic_base(states)).squeeze()
             state_values = state_values.squeeze()
 
             # Find ratios (pi_theta / pi_theta__old)
@@ -178,7 +183,11 @@ class AgentPPO(Agent):
             critic_loss = self.loss_fn(state_values, returns)
 
             # Total Loss (includes entropy bonus for exploration)
-            loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+            loss = (
+                actor_loss
+                + self.critic_coeff * critic_loss
+                - self.entropy_coeff * entropy.mean()
+            )
 
             # Backprop
             self.optimizer.zero_grad()
@@ -257,7 +266,11 @@ class AgentPPO(Agent):
             actor_loss = -torch.min(surr1, surr2).mean()
             critic_loss = self.loss_fn(state_values, returns)
 
-            loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+            loss = (
+                actor_loss
+                + self.critic_coeff * critic_loss
+                - self.entropy_coeff * entropy.mean()
+            )
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -353,7 +366,11 @@ class AgentPPO(Agent):
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = self.loss_fn(state_values, mb_returns)
 
-                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+                loss = (
+                    actor_loss
+                    + self.critic_coeff * critic_loss
+                    - self.entropy_coeff * entropy.mean()
+                )
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -363,7 +380,7 @@ class AgentPPO(Agent):
                 else:
                     final_loss = torch.cat((final_loss, loss.detach().view(1)))
 
-        self.scheduler.step()
+                self.scheduler.step()
         self.buffer.clear()  # Clear rollout buffer after update
         final_loss = final_loss.mean().cpu()
 
@@ -476,7 +493,11 @@ class AgentPPO(Agent):
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = self.loss_fn(state_values, mb_returns)
 
-                loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy.mean()
+                loss = (
+                    actor_loss
+                    + self.critic_coeff * critic_loss
+                    - self.entropy_coeff * entropy.mean()
+                )
 
                 self.optimizer.zero_grad()
                 loss.backward()

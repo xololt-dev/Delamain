@@ -373,3 +373,244 @@ class MobileNetV4(DelamainBase):
 
     def action_mode_switch(self) -> bool:
         return True
+
+
+class MobileNetV4_PPO(DelamainBase):
+    def __init__(self, in_channels=12, input_size=96):
+        super().__init__()
+
+        # 96 / 84
+
+        # 48 / 42
+        self.conv1 = ConvBN(
+            in_channels=in_channels,
+            out_channels=32,
+            kernel_size=3,
+            stride=2,
+            dtype=torch.float32,
+        )
+        # 24 / 21
+        self.conv2 = ConvBN(
+            in_channels=32,
+            out_channels=96,
+            kernel_size=3,
+            stride=2,
+            dtype=torch.float32,
+        )
+        self.conv3 = ConvBN(
+            in_channels=96,
+            out_channels=64,
+            kernel_size=1,
+            stride=1,
+            dtype=torch.float32,
+        )
+        # 12 / 10
+        self.universal1 = UniversalInvertedBottleneck(
+            in_channels=64,
+            out_channels=96,
+            expand_ratio=3.0,
+            start_dw_kernel_size=5,
+            middle_dw_kernel_size=5,
+            stride=2,
+            dtype=torch.float32,
+        )
+        self.universal2 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=96,
+            expand_ratio=2.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal3 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=96,
+            expand_ratio=2.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal4 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=96,
+            expand_ratio=2.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal5 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=96,
+            expand_ratio=2.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal6 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=96,
+            expand_ratio=4.0,
+            start_dw_kernel_size=3,
+            middle_dw_kernel_size=0,
+            stride=1,
+            dtype=torch.float32,
+        )
+        # 6 / 6
+        self.universal7 = UniversalInvertedBottleneck(
+            in_channels=96,
+            out_channels=128,
+            expand_ratio=6.0,
+            start_dw_kernel_size=3,
+            middle_dw_kernel_size=3,
+            stride=2,
+            dtype=torch.float32,
+        )
+        self.universal8 = UniversalInvertedBottleneck(
+            in_channels=128,
+            out_channels=128,
+            expand_ratio=4.0,
+            start_dw_kernel_size=5,
+            middle_dw_kernel_size=5,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal9 = UniversalInvertedBottleneck(
+            in_channels=128,
+            out_channels=128,
+            expand_ratio=4.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=5,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal10 = UniversalInvertedBottleneck(
+            in_channels=128,
+            out_channels=128,
+            expand_ratio=3.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=5,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal11 = UniversalInvertedBottleneck(
+            in_channels=128,
+            out_channels=128,
+            expand_ratio=4.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.universal12 = UniversalInvertedBottleneck(
+            in_channels=128,
+            out_channels=128,
+            expand_ratio=4.0,
+            start_dw_kernel_size=0,
+            middle_dw_kernel_size=3,
+            stride=1,
+            dtype=torch.float32,
+        )
+        self.conv4 = ConvBN(
+            in_channels=128,
+            out_channels=960,
+            kernel_size=1,
+            stride=1,
+            dtype=torch.float32,
+        )
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        hidden_channels = 1280
+        # with torch.no_grad():
+        #     dummy = torch.zeros(
+        #         1, in_channels, input_size, input_size, dtype=torch.float32
+        #     )
+        #     dummy = self._forward_conv(dummy)
+        #     self._fc_input_size = dummy.numel()
+        # self.conv = ConvBN(
+        #     self._fc_input_size,
+        #     hidden_channels,
+        #     1,
+        #     dtype=torch.float32,
+        # )
+        # self.conv = ConvBN(960, hidden_channels, 1)
+        self.conv_actor = ConvBN(960, hidden_channels, 1)
+        self.conv_critic = ConvBN(960, hidden_channels, 1)
+        self.actor = nn.Linear(
+            hidden_channels,
+            5,
+            dtype=torch.float32,
+        )
+        self.critic = nn.Linear(
+            hidden_channels,
+            1,
+            dtype=torch.float32,
+        )
+
+    def _forward_conv(self, x):
+        x = self.conv1(x)
+
+        x = self.conv2(x)
+        x = self.conv3(x)
+
+        x = self.universal1(x)
+        x = self.universal2(x)
+        x = self.universal3(x)
+        x = self.universal4(x)
+        x = self.universal5(x)
+        x = self.universal6(x)
+
+        x = self.universal7(x)
+        x = self.universal8(x)
+        x = self.universal9(x)
+        x = self.universal10(x)
+        x = self.universal11(x)
+        x = self.universal12(x)
+        x = self.conv4(x)
+        x = self.avgpool(x)
+
+        return x
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        x = x.permute(0, 3, 1, 2)
+        x = x.float() / 255.0
+
+        x = self.conv1(x)
+
+        x = self.conv2(x)
+        x = self.conv3(x)
+
+        x = self.universal1(x)
+        x = self.universal2(x)
+        x = self.universal3(x)
+        x = self.universal4(x)
+        x = self.universal5(x)
+        x = self.universal6(x)
+
+        x = self.universal7(x)
+        x = self.universal8(x)
+        x = self.universal9(x)
+        x = self.universal10(x)
+        x = self.universal11(x)
+        x = self.universal12(x)
+        x = self.conv4(x)
+
+        # x = self.features(x)
+        x = self.avgpool(x)
+
+        # x = self.conv(x)
+        actor = self.conv_actor(x)
+        critic = self.conv_critic(x)
+        actor = actor.view(actor.size(0), -1)
+        critic = critic.view(critic.size(0), -1)
+
+        actor = self.actor(actor)
+        critic = self.critic(critic)
+
+        return actor, critic
+
+    def action_mode_switch(self) -> bool:
+        return True

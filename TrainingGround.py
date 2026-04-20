@@ -12,6 +12,7 @@ import random
 import platform
 import subprocess
 import os
+import collections.abc
 
 from functools import lru_cache, partial
 
@@ -50,7 +51,7 @@ from alternative_models.Delamain_2 import Delamain_2
 from alternative_models.Delamain_2_1 import Delamain_2_1
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
-from alternative_models.MobileNetV4 import MobileNetV4
+from alternative_models.MobileNetV4 import MobileNetV4, MobileNetV4_PPO
 
 # set up matplotlib
 is_ipython = "inline" in matplotlib.get_backend()
@@ -145,7 +146,7 @@ class TrainingGround:
                 #     "autoreset_mode": gym.vector.AutoresetMode.DISABLED,
                 # },
                 continuous=False,
-                render_mode="rgb_array",
+                render_mode="rgb_array" if yamlValues["eval"]["video"] else None,
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
 
@@ -208,7 +209,7 @@ class TrainingGround:
             self.env = gym.make(
                 self.ENVIRONMENT,
                 continuous=False,
-                render_mode="rgb_array",
+                render_mode="rgb_array" if yamlValues["eval"]["video"] else None,
                 domain_randomize=yamlValues["env"].get("random_colors", False),
             )
 
@@ -277,7 +278,6 @@ class TrainingGround:
                 )
 
         self.state, info = self.env.reset(seed=self.track_seed)
-        self.previous_state = self.state
         action_n = (
             self.env.single_action_space.n if self.vec else self.env.action_space.n
         )
@@ -326,7 +326,8 @@ class TrainingGround:
         if yamlValues["model"]["file_name"]:
             self.driver.load(self.MODELS_DIR, yamlValues["model"]["file_name"])
 
-        self._save_training_config()
+        if yamlValues["env"]["mode"] == "train":
+            self._save_training_config()
 
     def init_reporting(self, section):
         self.when2learn = section.get("when2learn", 4)
@@ -467,6 +468,10 @@ class TrainingGround:
                 )
             case "MobileNet":
                 in_channels = self._get_input_channels()
+                if self.algorithm == Algorithms.PPO:
+                    return partial(
+                        MobileNetV4_PPO, in_channels=in_channels, input_size=input_size
+                    )
                 return partial(
                     MobileNetV4, in_channels=in_channels, input_size=input_size
                 )
@@ -660,7 +665,6 @@ class TrainingGround:
                 actions_in_row.append([0])
             actions.fill(0)
             updating = True
-            episode_termination_reasons = [None] * self.envs_num
 
             while updating:
                 self.timestep_n += 1
@@ -673,31 +677,10 @@ class TrainingGround:
                     log_prob = None
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
+                current_ep_rewards += reward
+                current_ep_lengths += 1
                 rows = np.arange(len(action))
                 np.add.at(actions, (rows, action), 1)
-
-                # Track termination reasons for vectorized environment
-                if terminated.any() or truncated.any():
-                    if hasattr(info, "get") and "lap_finished" in info:
-                        lap_finished_array = info["lap_finished"]
-                        for i in range(len(lap_finished_array)):
-                            if terminated[i] or truncated[i]:
-                                if lap_finished_array[i]:
-                                    episode_termination_reasons[i] = (
-                                        TerminationReason.SUCCESS
-                                    )
-                                else:
-                                    episode_termination_reasons[i] = (
-                                        TerminationReason.OFF_TRACK
-                                    )
-                    # Handle timeout cases (truncated but not terminated)
-                    for i in range(self.envs_num):
-                        if (
-                            truncated[i]
-                            and not terminated[i]
-                            and episode_termination_reasons[i] is None
-                        ):
-                            episode_termination_reasons[i] = TerminationReason.TIMEOUT
 
                 for i in range(0, len(action)):
                     if prev_action[i] == action[i]:
@@ -707,8 +690,82 @@ class TrainingGround:
                         if prev_action[i] != None:
                             actions_in_row[i].append(0)
 
-                current_ep_rewards += reward
-                current_ep_lengths += 1
+                updating = not (terminated.any() or truncated.any())
+                dones = np.logical_or(terminated, truncated)
+                if not updating:
+                    lap_finished_array = (
+                        info["lap_finished"]
+                        if hasattr(info, "get") and "lap_finished" in info
+                        else None
+                    )
+
+                    for i in range(self.envs_num):
+                        assert current_ep_lengths[i] <= (
+                            1000.0 / self._skip_frames
+                        ), f"Episode length cannot be bigger than 250! (Currently {current_ep_lengths[i]})"
+                        if dones[i]:
+                            # Log the completed episode for this specific car
+                            self.episode_reward_list.append(current_ep_rewards[i])
+                            self.episode_length_list.append(current_ep_lengths[i])
+                            self.episode_loss_list.append(last_loss)
+                            self.episode_epsilon_list.append(self.driver.epsilon)
+                            self.episode_lr_list.append(self.driver.get_lr())
+                            print(
+                                "i: ",
+                                i,
+                                "reward:",
+                                current_ep_rewards[i],
+                                " length: ",
+                                current_ep_lengths[i],
+                                " last_loss: ",
+                                last_loss,
+                            )
+
+                            self.episode_actions_in_row_list.append(
+                                np.mean(actions_in_row[i])
+                            )
+
+                            # if lap_finished_array.any():
+                            if isinstance(lap_finished_array, collections.abc.Sequence):
+                                self.episode_termination_reasons.append(
+                                    (
+                                        TerminationReason.SUCCESS
+                                        if lap_finished_array[i]
+                                        else TerminationReason.OFF_TRACK
+                                    ).value
+                                )
+                            elif truncated[i] and not terminated[i]:
+                                self.episode_termination_reasons.append(
+                                    TerminationReason.TIMEOUT.value
+                                )
+                            else:
+                                self.episode_termination_reasons.append(
+                                    TerminationReason.UNKNOWN.value
+                                )
+
+                            efficiency_bonus = 1.0 + np.sum(actions[i, :3]) * 0.01
+                            penalty = np.dot(actions[i, 3:], self.FUEL_PENALTY_ARR)
+                            fuel_efficiency = (
+                                current_ep_rewards[i] * efficiency_bonus
+                            ) / (penalty + 1.0)
+
+                            self.episode_fuel_efficiency_list.append(fuel_efficiency)
+                            print(f"Fuel efficiency: {fuel_efficiency:.3f}")
+
+                            now_time = datetime.datetime.now()
+                            self.episode_date_list.append(
+                                now_time.date().strftime("%Y-%m-%d")
+                            )
+                            self.episode_time_list.append(
+                                now_time.time().strftime("%H:%M:%S")
+                            )
+
+                        terminated[i] = True
+                        current_ep_rewards[i] = 0
+                        current_ep_lengths[i] = 0
+                        actions[i].fill(0)
+                        prev_action[i] = None
+                        actions_in_row[i] = [0]
 
                 if self.algorithm == Algorithms.PPO:
                     self.driver.store(
@@ -724,69 +781,6 @@ class TrainingGround:
 
                 # Move to the next state
                 self.state = new_state
-                updating = not (terminated.any() or truncated.any())
-
-                dones = np.logical_or(terminated, truncated)
-                for i in range(self.envs_num):
-                    if current_ep_lengths[i] > 250:
-                        print("i length>250!!!!!: ", i)
-                    if dones[i]:
-                        # Log the completed episode for this specific car
-                        self.episode_reward_list.append(current_ep_rewards[i])
-                        self.episode_length_list.append(current_ep_lengths[i])
-                        self.episode_loss_list.append(last_loss)
-                        self.episode_epsilon_list.append(self.driver.epsilon)
-                        self.episode_lr_list.append(self.driver.get_lr())
-                        print(
-                            "i: ",
-                            i,
-                            "reward:",
-                            current_ep_rewards[i],
-                            " length: ",
-                            current_ep_lengths[i],
-                            " last_loss: ",
-                            last_loss,
-                        )
-
-                        self.episode_actions_in_row_list.append(
-                            np.mean(actions_in_row[i])
-                        )
-
-                        # Store termination reason for this episode
-                        if episode_termination_reasons[i]:
-                            self.episode_termination_reasons.append(
-                                episode_termination_reasons[i]
-                            )
-                        else:
-                            self.episode_termination_reasons.append(
-                                TerminationReason.UNKNOWN
-                            )
-
-                        episode_termination_reasons[i] = None
-                        prev_action[i] = None
-                        actions_in_row[i] = [0]
-
-                        efficiency_bonus = 1.0 + np.sum(actions[i, :3]) * 0.01
-                        penalty = np.dot(actions[i, 3:], self.FUEL_PENALTY_ARR)
-                        fuel_efficiency = (current_ep_rewards[i] * efficiency_bonus) / (
-                            penalty + 1.0
-                        )
-                        actions[i].fill(0)
-
-                        self.episode_fuel_efficiency_list.append(fuel_efficiency)
-                        print(f"Fuel efficiency: {fuel_efficiency:.3f}")
-
-                        now_time = datetime.datetime.now()
-                        self.episode_date_list.append(
-                            now_time.date().strftime("%Y-%m-%d")
-                        )
-                        self.episode_time_list.append(
-                            now_time.time().strftime("%H:%M:%S")
-                        )
-
-                        # Reset trackers for this specific car, as it auto-resets
-                        current_ep_rewards[i] = 0
-                        current_ep_lengths[i] = 0
 
                 if self.timestep_n % self.when2sync == 0:
                     if self.algorithm != Algorithms.PPO:

@@ -54,7 +54,7 @@ eval:
   tracks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   video: False
 reporting:
-  when2learn: 1024 # in timesteps
+  when2learn: 1024 # in timesteps (PPO)
   # when2learn: 4 # in timesteps
   when2sync: 5000 # in timesteps
   when2save: 50000 # in timesteps
