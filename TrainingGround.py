@@ -7,12 +7,19 @@ import datetime
 import torch.nn as nn
 import matplotlib
 import matplotlib.pyplot as plt
-import time
 import random
 import platform
 import subprocess
 import os
 import collections.abc
+import shutil
+
+try:
+    import google.colab
+
+    IN_COLAB = True
+except:
+    IN_COLAB = False
 
 from functools import lru_cache, partial
 
@@ -64,6 +71,7 @@ class TrainingGround:
     VIDEO_DIR = "training/video"
     MODELS_DIR = "training/saved_models"
     PARAMS_FILE = "training_params.yaml"
+    DRIVE_DIR = "drive/MyDrive/Magisterka"
     FUEL_PENALTY_ARR = [1.5, 2.0]
 
     def __init__(self):
@@ -74,6 +82,7 @@ class TrainingGround:
             except yaml.YAMLError as exc:
                 raise Exception(exc)
 
+        self.init_time = datetime.datetime.now()
         self.batch_n = yamlValues["train"].get("batch_n", 32)
         self.play_n_episodes = yamlValues["train"].get("play_n_episodes", 3000)
         self.episode_lr_list = []
@@ -433,13 +442,26 @@ class TrainingGround:
         except:
             config_data["git_commit"] = "Not available"
 
+        if not os.path.exists(self.driver.LOG_DIR):
+            os.makedirs(self.driver.LOG_DIR)
         config_filename = f"{self.class_name}_config.yaml"
         config_path = os.path.join(self.driver.LOG_DIR, config_filename)
 
         with open(config_path, "w") as f:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
+        self.save_to_google_drive()
+
         print(f"Training configuration saved to {config_path}")
+
+    def save_to_google_drive(self) -> None:
+        if IN_COLAB:
+            date = self.init_time.date().strftime("%Y-%m-%d")
+            time = self.init_time.time().strftime("%H:%M:%S")
+            directory = os.path.join(self.DRIVE_DIR, f"{date}_{time}")
+
+            shutil.make_archive(f"{date}_{time}", "zip", "training")
+            shutil.copy(f"{date}_{time}.zip", directory)
 
     @lru_cache(maxsize=1)
     def _get_observation_channels(self) -> int:
@@ -589,6 +611,7 @@ class TrainingGround:
 
                 if self.timestep_n % self.when2save == 0:
                     self.driver.save(self.driver.SAVE_DIR, self.class_name)
+                    self.save_to_google_drive()
 
                 if self.timestep_n % self.when2learn == 0:
                     q, loss = self.driver.update_net(self.batch_n)
@@ -637,8 +660,10 @@ class TrainingGround:
 
             if self.episode % self.when2log == 0:
                 self._log_timestep()
+                self.save_to_google_drive()
 
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
+        self.save_to_google_drive()
 
         self.env.close()
         plt.ioff()
@@ -789,6 +814,7 @@ class TrainingGround:
 
                 if self.timestep_n % self.when2save == 0:
                     self.driver.save(self.driver.SAVE_DIR, self.class_name)
+                    self.save_to_google_drive()
 
                 if self.timestep_n % self.when2learn == 0:
                     q, loss = self.driver.update_net(self.batch_n)
@@ -815,8 +841,10 @@ class TrainingGround:
 
             if self.episode % self.when2log == 0:
                 self._log_timestep()
+                self.save_to_google_drive()
 
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
+        self.save_to_google_drive()
 
         self.env.close()
         plt.ioff()
@@ -908,6 +936,7 @@ class TrainingGround:
 
             if self.timestep_n % self.when2save == 0:
                 self.driver.save(self.driver.SAVE_DIR, self.class_name)
+                self.save_to_google_drive()
 
             if self.timestep_n % self.when2learn == 0:
                 q, loss = self.driver.update_net(self.batch_n)
@@ -932,8 +961,10 @@ class TrainingGround:
 
             if self.episode % self.when2log == 0:
                 self._log_timestep()
+                self.save_to_google_drive()
 
         self.driver.save(self.driver.SAVE_DIR, self.class_name)
+        self.save_to_google_drive()
 
         self.env.close()
         plt.ioff()

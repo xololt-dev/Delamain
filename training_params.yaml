@@ -38,18 +38,18 @@ env:
 train:
   algorithm: "PPO"
   batch_n: 64
-  play_n_episodes: 25000
+  play_n_episodes: 2500
   gamma: 0.95
   epsilon: 1.0
   epsilon_end: 0.05
   epsilon_decay: 0.9999925
   lr: 0.002
   lr_decay: 0.9999925
-  n_step: 4
-  buffer_size: 42500
-  seed:
+  n_step: 1
+  buffer_size: 100000
+  # buffer_size: 42500
+  seed: 1
   track_seed:
-  # buffer_size: 77500
 eval:
   tracks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
   video: False
@@ -57,7 +57,7 @@ reporting:
   when2learn: 1024 # in timesteps (PPO)
   # when2learn: 4 # in timesteps
   when2sync: 5000 # in timesteps
-  when2save: 50000 # in timesteps
+  when2save: 25000 # in timesteps
   when2report: 5000 # in timesteps
   when2eval: 25000 # in timesteps
   when2log: 20 # in episodes

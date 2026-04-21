@@ -5,6 +5,13 @@ import numpy as np
 import os
 import csv
 
+try:
+    import google.colab
+
+    IN_COLAB = True
+except:
+    IN_COLAB = False
+
 import torch
 from torchrl.data import (
     TensorDictReplayBuffer,
@@ -310,7 +317,7 @@ class AgentDQN(Agent):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         save_path = os.path.join(save_dir, save_name + f"_{self.act_taken}.pt")
-        # buffer_save_path = os.path.join(save_dir, f"buffer_{self.act_taken}.pt")
+        buffer_save_path = os.path.join(save_dir, f"buffer.pt")
 
         # Save models and optimizer state
         torch.save(
@@ -326,8 +333,9 @@ class AgentDQN(Agent):
         )
 
         # Save replay buffer data separately
-        # torch.save(self.buffer._storage.data, buffer_save_path)
-        # self.buffer.dumps(buffer_save_path)
+        if IN_COLAB:
+            # torch.save(self.buffer._storage.data, buffer_save_path)
+            self.buffer.dumps(buffer_save_path)
 
         print(f"Model saved to {save_path} at step {self.act_taken}")
 
@@ -341,7 +349,9 @@ class AgentDQN(Agent):
             model_name (str) : The name of the file containing the saved model.
         """
         save_path = os.path.join(load_dir, model_name)
-        # buffer_save_path = os.path.join(load_dir, f"buffer_{self.act_taken}.pt") # This needs to be fixed to load the correct buffer
+        buffer_save_path = os.path.join(
+            load_dir, f"buffer.pt"
+        )  # This needs to be fixed to load the correct buffer
 
         loaded_model = torch.load(
             save_path, map_location=self.device, weights_only=False
@@ -356,11 +366,6 @@ class AgentDQN(Agent):
         if sched_param:
             self.scheduler.load_state_dict(sched_param)
 
-        # Load replay buffer data separately
-        # self.buffer._storage.data =
-        # torch.load(buffer_save_path)
-        # self.buffer._storage._memmap = None # Reset memmap after loading
-
         if self.load_state == "eval" or self.load_state == "kernel_vis":
             self.target_net.eval()
             self.policy_net.eval()
@@ -371,7 +376,11 @@ class AgentDQN(Agent):
             self.policy_net.train()
             self.act_taken = loaded_model["action_number"]
             self.epsilon = loaded_model["epsilon"]
-            # self.buffer.loads(buffer_save_path)
+            # Load replay buffer data separately
+            if IN_COLAB:
+                self.buffer._storage.data = torch.load(buffer_save_path)
+                self.buffer._storage._memmap = None  # Reset memmap after loading
+                self.buffer.loads(buffer_save_path)
         else:
             raise ValueError(
                 f"Unknown load state. Should be either 'eval', 'kernel_vis', 'train' or 'fine_tune'."
