@@ -378,8 +378,6 @@ class AgentDQN(Agent):
             self.epsilon = loaded_model["epsilon"]
             # Load replay buffer data separately
             if IN_COLAB:
-                self.buffer._storage.data = torch.load(buffer_save_path)
-                self.buffer._storage._memmap = None  # Reset memmap after loading
                 self.buffer.loads(buffer_save_path)
         else:
             raise ValueError(

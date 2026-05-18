@@ -297,7 +297,10 @@ class TrainingGround:
             if not yamlValues["model"]["file_name"]:
                 raise Exception("No model file name passed in training params")
 
-            agent_args = dict(device=yamlValues["env"].get("device", None))
+            agent_args = dict(
+                device=yamlValues["env"].get("device", None),
+                vec=yamlValues["env"].get("vec", False),
+            )
             self.driver = driver_class(
                 self.state.shape,
                 action_n,
@@ -1068,6 +1071,8 @@ class TrainingGround:
             episode_length = 0
             updating = True
             action = None
+            prev_action = None
+            actions_in_row = [0]
 
             while updating:
                 episode_length += 1
@@ -1080,8 +1085,20 @@ class TrainingGround:
                     log_prob = None
                 if isinstance(action, int):
                     actions[action] += 1
+                    if prev_action == action:
+                        actions_in_row[-1] += 1
+                    else:
+                        prev_action = action
+                        if prev_action != None:
+                            actions_in_row.append(0)
                 elif isinstance(action, list):
                     actions[action[0]] += 1
+                    if prev_action == action[0]:
+                        actions_in_row[-1] += 1
+                    else:
+                        prev_action = action[0]
+                        if prev_action != None:
+                            actions_in_row.append(0)
 
                 new_state, reward, terminated, truncated, info = self.env.step(action)
                 self.state = new_state
@@ -1098,6 +1115,7 @@ class TrainingGround:
             print(f"    episode length {episode_length}")
             print(f"    info {info}")
             print(f"    actions {actions}")
+            print("actions_in_row:", np.mean(actions_in_row))
 
             efficiency_bonus = 1.0 + np.sum(actions[:3]) * 0.01
             penalty = np.dot(actions[3:], self.FUEL_PENALTY_ARR)
