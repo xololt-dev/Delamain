@@ -153,8 +153,13 @@ class TrainingRun:
             if date_data and time_data and len(date_data) == len(time_data) and len(time_data) > 1:
                 durations = []
                 for i in range(1, len(time_data)):
+                    prev_i = i - 1
+                    while prev_i >= 0 and time_data[prev_i] == time_data[i]:
+                        prev_i -= 1
+                    if prev_i < 0:
+                        continue
                     try:
-                        dt_prev = datetime.strptime(f"{date_data[i-1]} {time_data[i-1]}", "%Y-%m-%d %H:%M:%S")
+                        dt_prev = datetime.strptime(f"{date_data[prev_i]} {time_data[prev_i]}", "%Y-%m-%d %H:%M:%S")
                         dt_curr = datetime.strptime(f"{date_data[i]} {time_data[i]}", "%Y-%m-%d %H:%M:%S")
                         durations.append((dt_curr - dt_prev).total_seconds())
                     except (ValueError, AttributeError):
