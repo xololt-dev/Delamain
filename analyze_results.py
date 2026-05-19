@@ -28,6 +28,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from typing import Dict, List, Any, Optional
 import re
+from datetime import datetime
 
 # Set matplotlib style for better looking plots
 plt.style.use('seaborn-v0_8')
@@ -38,21 +39,25 @@ matplotlib.rcParams['font.size'] = 12
 class TrainingRun:
     """Class to represent a single training run with its logs and configuration."""
     
-    def __init__(self, log_file: str, config_file: Optional[str] = None):
+    def __init__(self, log_file: str, config_file: Optional[str] = None, name: Optional[str] = None):
         """
         Initialize a TrainingRun with log and optional config files.
         
         Args:
             log_file: Path to CSV log file
             config_file: Path to YAML config file (optional)
+            name: Custom run name (optional, auto-extracted from log filename if not provided)
         """
         self.log_file = log_file
         self.config_file = config_file
         self.log_data = {}
         self.config_data = {}
         
-        # Extract run name from log file
-        self.name = os.path.splitext(os.path.basename(log_file))[0].replace('_log_test', '')
+        # Extract run name from log file (override with custom name if provided)
+        if name:
+            self.name = name
+        else:
+            self.name = os.path.splitext(os.path.basename(log_file))[0].replace('_log_test', '')
         
         # Load data
         self._load_log_data()
@@ -124,6 +129,49 @@ class TrainingRun:
             })
         
         return summary
+    
+    def _save_summary_txt(self, output_dir: str = 'analysis'):
+        """Save a text summary file alongside plots, including median episode times."""
+        os.makedirs(output_dir, exist_ok=True)
+        path = os.path.join(output_dir, f'{self.name}_summary.txt')
+        
+        summary = self.get_summary()
+        length_data = self.get_metric('length')
+        date_data = self.get_metric('date')
+        time_data = self.get_metric('time')
+        
+        with open(path, 'w') as f:
+            f.write(f"Run: {summary['name']}\n")
+            f.write(f"Episodes: {summary['episodes']}\n")
+            f.write(f"Max Reward: {summary['max_reward']:.2f}\n")
+            f.write(f"Average Reward: {summary['avg_reward']:.2f}\n")
+            f.write(f"Total Timesteps: {summary['total_timesteps']}\n")
+            
+            if length_data:
+                f.write(f"Median Episode Length (timesteps): {np.median(length_data):.2f}\n")
+            
+            if date_data and time_data and len(date_data) == len(time_data) and len(time_data) > 1:
+                durations = []
+                for i in range(1, len(time_data)):
+                    try:
+                        dt_prev = datetime.strptime(f"{date_data[i-1]} {time_data[i-1]}", "%Y-%m-%d %H:%M:%S")
+                        dt_curr = datetime.strptime(f"{date_data[i]} {time_data[i]}", "%Y-%m-%d %H:%M:%S")
+                        durations.append((dt_curr - dt_prev).total_seconds())
+                    except (ValueError, AttributeError):
+                        pass
+                if durations:
+                    f.write(f"Median Wall Clock Time (seconds): {np.median(durations):.2f}\n")
+            
+            reasons = self.get_metric('termination_reasons')
+            if reasons:
+                from collections import Counter
+                reason_counts = Counter(reasons)
+                f.write("\nTermination Reasons:\n")
+                for reason, count in reason_counts.items():
+                    pct = (count / len(reasons)) * 100
+                    f.write(f"  {reason}: {count} ({pct:.1f}%)\n")
+        
+        print(f"📝 Saved summary to {path}")
 
 
 def plot_learning_curve(runs: List[TrainingRun], output_dir: str = 'analysis'):
@@ -145,11 +193,21 @@ def plot_learning_curve(runs: List[TrainingRun], output_dir: str = 'analysis'):
         
         plt.plot(smoothed_episodes, smoothed_rewards, label=run.name, alpha=0.8)
         
-        # Add scatter points for key milestones
+        # Add scatter points for key milestones (skip episode 0)
         if len(rewards) >= 10:
-            milestone_indices = [0, len(rewards)//4, len(rewards)//2, 3*len(rewards)//4, -1]
+            milestone_indices = [len(rewards)//4, len(rewards)//2, 3*len(rewards)//4, -1]
             for idx in milestone_indices:
                 plt.scatter(episodes[idx], rewards[idx], s=60, edgecolors='black', linewidth=0.5)
+        
+        # Add scatter point for first track completion
+        reasons = run.get_metric('termination_reasons')
+        if reasons:
+            for i, reason in enumerate(reasons):
+                if reason == 'success':
+                    plt.scatter(episodes[i], rewards[i], marker='*', s=200,
+                                color='green', edgecolors='black', linewidth=0.5,
+                                zorder=5, label=f'{run.name} first completion' if len(runs) == 1 else None)
+                    break
     
     plt.title('Learning Curve: Reward vs Episodes', fontsize=16)
     plt.xlabel('Episodes', fontsize=14)
@@ -286,29 +344,28 @@ def plot_termination_reasons(run: TrainingRun, output_dir: str = 'analysis'):
     plt.close()
 
 
-def plot_completion_rate(run: TrainingRun, output_dir: str = 'analysis'):
-    """Plot success rate over time"""
+def plot_completion_rate(run: TrainingRun, output_dir: str = 'analysis', window: int = 50):
+    """Plot success rate over time (rolling % of last n episodes)."""
     reasons = run.get_metric('termination_reasons')
     if not reasons:
         print("⚠️  No termination reason data available")
         return
     
-    # Calculate cumulative success rate
+    # Calculate rolling success rate over last `window` episodes
     success_rates = []
-    cumulative_success = 0
-    
-    for i, reason in enumerate(reasons):
-        if reason == 'success':
-            cumulative_success += 1
-        success_rates.append((cumulative_success / (i + 1)) * 100)
+    for i in range(len(reasons)):
+        start = max(0, i - window + 1)
+        count = i - start + 1
+        successes = sum(1 for j in range(start, i + 1) if reasons[j] == 'success')
+        success_rates.append((successes / count) * 100)
     
     plt.figure(figsize=(12, 6))
     plt.plot(range(1, len(success_rates) + 1), success_rates, 'g-', linewidth=2)
-    plt.title(f'Completion Rate Over Time: {run.name}', fontsize=16)
+    plt.title(f'Completion Rate Over Time (last {window} episodes): {run.name}', fontsize=16)
     plt.xlabel('Episodes', fontsize=14)
-    plt.ylabel('Success Rate (%)', fontsize=14)
+    plt.ylabel(f'Success Rate (%, last {window} episodes)', fontsize=14)
     plt.grid(True, alpha=0.3)
-    plt.ylim(0, 100)  # Success rate is always 0-100%
+    plt.ylim(0, 100)
     plt.tight_layout()
     
     plot_path = os.path.join(output_dir, f'{run.name}_completion_rate.png')
@@ -412,12 +469,14 @@ def main():
     single_parser.add_argument('--log', required=True, help='Path to CSV log file')
     single_parser.add_argument('--config', help='Path to YAML config file')
     single_parser.add_argument('--output', default='analysis', help='Output directory for plots')
+    single_parser.add_argument('--name', help='Custom run name (overrides auto-extraction)')
     
     # Compare multiple runs
     compare_parser = subparsers.add_parser('compare', help='Compare multiple training runs')
     compare_parser.add_argument('--logs', nargs='+', required=True, help='Paths to CSV log files')
     compare_parser.add_argument('--configs', nargs='+', help='Paths to YAML config files')
     compare_parser.add_argument('--output', default='analysis', help='Output directory for plots')
+    compare_parser.add_argument('--names', nargs='*', help='Custom run names (positional match with --logs, extras ignored)')
     
     # Show run information
     info_parser = subparsers.add_parser('info', help='Show information about a training run')
@@ -434,8 +493,9 @@ def main():
     if args.command == 'single':
         print(f"🔍 Analyzing single run: {args.log}")
         
-        run = TrainingRun(args.log, args.config)
+        run = TrainingRun(args.log, args.config, name=args.name)
         show_run_info(run)
+        run._save_summary_txt(args.output)
         
         # Generate plots
         plot_learning_curve([run], args.output)
@@ -452,9 +512,17 @@ def main():
     elif args.command == 'compare':
         print(f"🔍 Comparing {len(args.logs)} runs")
         
-        # Create TrainingRun objects
+        # Create TrainingRun objects with optional custom names
         configs = args.configs if args.configs else [None] * len(args.logs)
-        runs = [TrainingRun(log, config) for log, config in zip(args.logs, configs)]
+        names = args.names if args.names else [None] * len(args.logs)
+        runs = []
+        for i, (log, config) in enumerate(zip(args.logs, configs)):
+            custom_name = names[i] if i < len(names) else None
+            runs.append(TrainingRun(log, config, name=custom_name))
+        
+        # Save per-run summaries
+        for run in runs:
+            run._save_summary_txt(args.output)
         
         # Generate comparison
         compare_runs(runs, args.output)
