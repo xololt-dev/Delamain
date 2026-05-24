@@ -35,9 +35,13 @@ class EdgeAntialiasObservation(gym.Wrapper):
 
         # Compute luminance (BT.601)
         lum = (
-            0.299 * float_obs[..., 0]
-            + 0.587 * float_obs[..., 1]
-            + 0.114 * float_obs[..., 2]
+            (
+                0.299 * float_obs[..., 0]
+                + 0.587 * float_obs[..., 1]
+                + 0.114 * float_obs[..., 2]
+            )
+            if float_obs.shape[2] == 3
+            else float_obs
         )
 
         # Luminance differences with right and bottom neighbors
