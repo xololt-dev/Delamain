@@ -220,6 +220,8 @@ class TrainingRun:
 def plot_learning_curve(runs: List[TrainingRun], output_dir: str = "analysis"):
     """Plot learning curves (reward vs episodes) for one or more runs."""
     plt.figure(figsize=(12, 6))
+    plots = []
+    star_plots = []
 
     for run in runs:
         rewards = run.get_metric("reward")
@@ -236,7 +238,10 @@ def plot_learning_curve(runs: List[TrainingRun], output_dir: str = "analysis"):
             smoothed_rewards = rewards
             smoothed_episodes = episodes
 
-        plt.plot(smoothed_episodes, smoothed_rewards, label=run.name, alpha=0.8)
+        (line,) = plt.plot(
+            smoothed_episodes, smoothed_rewards, label=run.name, alpha=0.8
+        )
+        plots.append(line)
 
         # Add scatter points for key milestones (skip episode 0)
         if len(rewards) >= 10:
@@ -256,28 +261,26 @@ def plot_learning_curve(runs: List[TrainingRun], output_dir: str = "analysis"):
         if reasons:
             for i, reason in enumerate(reasons):
                 if reason == "success":
-                    plt.scatter(
+                    star = plt.scatter(
                         episodes[i],
                         rewards[i],
                         marker="*",
                         s=200,
-                        color="green",
                         edgecolors="black",
                         linewidth=0.5,
                         zorder=5,
-                        label=(
-                            f"{run.name} pierwsze ukończenie"
-                            if len(runs) == 1
-                            else None
-                        ),
+                        label=f"{run.name} pierwsze ukończenie",
                     )
+                    star_plots.append(star)
                     break
 
     plt.title("Krzywa uczenia: nagroda w czasie", fontsize=16)
     plt.xlabel("Epizod", fontsize=14)
     plt.ylabel("Nagroda", fontsize=14)
     plt.grid(True, alpha=0.3)
-    plt.legend()
+    plt.legend(
+        handles=plots + star_plots,
+    )
     plt.tight_layout()
 
     # Save plot
