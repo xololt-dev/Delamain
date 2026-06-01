@@ -20,6 +20,12 @@ from environment.wrappers import (
     EdgeAntialiasObservationVec,
     OpticalFlowObservation,
     OpticalFlowObservationVec,
+    ClipReward,
+    ClipRewardVec,
+    EarlyTerminate,
+    EarlyTerminateVec,
+    RepeatActionPenalty,
+    RepeatActionPenaltyVec,
 )
 
 SKIP = 4
@@ -1549,9 +1555,9 @@ class TestCropVisualSnapshot:
         mpimg.imsave(sb_path, side_by_side)
 
         print(f"\n  Saved: {os.path.abspath(raw_path)} ({raw.shape})")
-        print(f"  Saved: {os.path.abspath(crop_path)} ({cropped.shape})")
-        print(f"  Saved: {os.path.abspath(outlined_path)}")
-        print(f"  Saved: {os.path.abspath(sb_path)}")
+        print(f"\n  Saved: {os.path.abspath(crop_path)} ({cropped.shape})")
+        print(f"\n  Saved: {os.path.abspath(outlined_path)}")
+        print(f"\n  Saved: {os.path.abspath(sb_path)}")
 
         # Verify dimensions
         assert raw.shape == (96, 96, 3)
@@ -1561,3 +1567,443 @@ class TestCropVisualSnapshot:
 
         env_raw.close()
         env_crop.close()
+
+
+# =============================================================================
+# Reward-shaping wrapper tests (ClipReward, EarlyTerminate, RepeatActionPenalty)
+# =============================================================================
+#
+# These wrappers don't depend on observation content, so we wrap CarRacing
+# in a thin env that overrides the reward with a fixed sequence. This keeps
+# tests deterministic while still exercising real CarRacing + Box observation
+# paths under the wrapper stack.
+
+class _FixedRewardEnv(gym.Wrapper):
+    """CarRacing wrapper that ignores the underlying reward and returns
+    a fixed sequence. Once exhausted, the last value is sticky."""
+
+    def __init__(self, reward_seq):
+        env = gym.make("CarRacing-v3", continuous=False, render_mode="rgb_array")
+        super().__init__(env)
+        self._seq = list(reward_seq)
+        self._i = 0
+
+    def step(self, action):
+        obs, _, term, trunc, info = self.env.step(action)
+        idx = min(self._i, len(self._seq) - 1)
+        r = float(self._seq[idx])
+        self._i += 1
+        return obs, r, term, trunc, info
+
+    def reset(self, seed=None, options=None):
+        self._i = 0
+        return self.env.reset(seed=seed, options=options)
+
+
+def _make_fixed_reward_env(reward_seq):
+    """Factory suitable for gym.vector.SyncVectorEnv."""
+    def _thunk():
+        return _FixedRewardEnv(reward_seq)
+    return _thunk
+
+
+# --- ClipReward scalar tests ---
+
+class TestClipReward:
+    def test_clips_positive_above_one(self):
+        env = ClipReward(_FixedRewardEnv([2.5]))
+        env.reset(seed=42)
+        _, reward, _, _, _ = env.step(3)
+        assert reward == 1.0
+        env.close()
+
+    def test_clips_negative_below_minus_one(self):
+        env = ClipReward(_FixedRewardEnv([-3.0]))
+        env.reset(seed=42)
+        _, reward, _, _, _ = env.step(3)
+        assert reward == -1.0
+        env.close()
+
+    def test_passes_through_when_disabled(self):
+        env = ClipReward(_FixedRewardEnv([2.5]), enabled=False)
+        env.reset(seed=42)
+        _, reward, _, _, _ = env.step(3)
+        assert reward == 2.5
+        env.close()
+
+    def test_toggle_at_runtime(self):
+        env = ClipReward(_FixedRewardEnv([2.5]))
+        env.reset(seed=42)
+        _, reward_clipped, _, _, _ = env.step(3)
+        assert reward_clipped == 1.0
+
+        env.enabled = False
+        _, reward_raw, _, _, _ = env.step(3)
+        assert reward_raw == 2.5
+        env.close()
+
+
+# --- ClipRewardVec tests ---
+
+class TestClipRewardVec:
+    def test_clips_per_env(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([2.5]) for _ in range(NUM_ENVS)]
+        )
+        env = ClipRewardVec(env)
+        env.reset(seed=[42] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([3] * NUM_ENVS)
+        assert np.all(reward == 1.0)
+        env.close()
+
+    def test_disabled_passthrough(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([2.5]) for _ in range(NUM_ENVS)]
+        )
+        env = ClipRewardVec(env, enabled=False)
+        env.reset(seed=[42] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([3] * NUM_ENVS)
+        assert np.all(reward == 2.5)
+        env.close()
+
+    def test_negative_clipped(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([-3.0]) for _ in range(NUM_ENVS)]
+        )
+        env = ClipRewardVec(env)
+        env.reset(seed=[42] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([3] * NUM_ENVS)
+        assert np.all(reward == -1.0)
+        env.close()
+
+
+# --- EarlyTerminate scalar tests ---
+
+class TestEarlyTerminate:
+    def test_no_termination_under_threshold(self):
+        # Peak stays at 1.0, episode_reward never drops more than 0.5 below.
+        env = EarlyTerminate(_FixedRewardEnv([1.0, 0.6, 0.7]), threshold=2.0)
+        env.reset(seed=42)
+        _, reward, terminated, truncated, _ = env.step(3)
+        assert not terminated
+        assert not truncated
+        assert reward == 1.0
+        env.close()
+
+    def test_termination_when_drop_exceeds_threshold(self):
+        # Peak 1.0, then -3.0 -> running total drops to -2.0, delta = 3.0 > 2.0
+        env = EarlyTerminate(_FixedRewardEnv([1.0, -3.0]), threshold=2.0)
+        env.reset(seed=42)
+        env.step(3)  # reward=1.0, peak=1.0
+        _, reward, terminated, _, _ = env.step(3)  # reward=-3.0, terminates
+        assert terminated is True
+        assert reward == -3.0
+        env.close()
+
+    def test_penalty_subtracted_on_termination(self):
+        env = EarlyTerminate(
+            _FixedRewardEnv([1.0, -3.0]), threshold=2.0, penalty=0.5
+        )
+        env.reset(seed=42)
+        env.step(3)
+        _, reward, terminated, _, _ = env.step(3)
+        assert terminated is True
+        assert reward == -3.5  # -3.0 - 0.5
+        env.close()
+
+    def test_reset_zeroes_running_total(self):
+        env = EarlyTerminate(_FixedRewardEnv([1.0, 1.0]), threshold=0.1)
+        env.reset(seed=42)
+        env.step(3)
+        env.step(3)
+        # Now reset -> internal counters should clear
+        env.reset(seed=43)
+        # After reset, the new episode should not immediately terminate
+        # regardless of past history. Reward 0.0 -> running=0, peak=0, delta=0.
+        _, reward, terminated, _, _ = env.step(3)
+        assert not terminated
+        assert reward == 1.0
+        env.close()
+
+    def test_obeys_env_terminated(self):
+        # If the underlying env signals terminated, it propagates.
+        # First reward (1.0) does not trigger early termination (peak=1, delta=0).
+        # Env may not naturally terminate, so we just verify the wrapper
+        # does not mask the underlying terminated flag.
+        env_inner = _FixedRewardEnv([1.0])
+        # Force a termination by patching the inner env's step result.
+        class _ForceTerm(gym.Wrapper):
+            def step(self, action):
+                obs, r, _, _, info = self.env.step(action)
+                return obs, r, True, False, info
+            def reset(self, seed=None, options=None):
+                return self.env.reset(seed=seed, options=options)
+        env = EarlyTerminate(_ForceTerm(env_inner), threshold=10.0)
+        env.reset(seed=42)
+        _, _, terminated, _, _ = env.step(3)
+        assert terminated is True
+        env.close()
+
+
+# --- EarlyTerminateVec tests ---
+
+class TestEarlyTerminateVec:
+    def test_no_termination_all_under(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 0.5, 0.5]) for _ in range(NUM_ENVS)]
+        )
+        env = EarlyTerminateVec(env, threshold=2.0)
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([3] * NUM_ENVS)
+        _, _, terminated, _, _ = env.step([3] * NUM_ENVS)
+        assert not np.any(terminated)
+        env.close()
+
+    def test_per_env_termination(self):
+        # Env 0 triggers termination (drop 3.0), env 1 does not.
+        env = gym.vector.SyncVectorEnv(
+            [
+                _make_fixed_reward_env([1.0, -3.0]),  # terminates
+                _make_fixed_reward_env([1.0, 1.0]),  # safe
+            ]
+        )
+        env = EarlyTerminateVec(env, threshold=2.0)
+        env.reset(seed=[42, 43])
+        env.step([3, 3])
+        _, _, terminated, _, _ = env.step([3, 3])
+        assert bool(terminated[0]) is True
+        assert bool(terminated[1]) is False
+        env.close()
+
+    def test_per_env_penalty(self):
+        env = gym.vector.SyncVectorEnv(
+            [
+                _make_fixed_reward_env([1.0, -3.0]),  # penalized
+                _make_fixed_reward_env([1.0, 1.0]),  # not
+            ]
+        )
+        env = EarlyTerminateVec(env, threshold=2.0, penalty=0.5)
+        env.reset(seed=[42, 43])
+        env.step([3, 3])
+        _, reward, _, _, _ = env.step([3, 3])
+        assert reward[0] == -3.5
+        assert reward[1] == 1.0
+        env.close()
+
+    def test_reset_clears_per_env_arrays(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, -10.0]) for _ in range(NUM_ENVS)]
+        )
+        env = EarlyTerminateVec(env, threshold=2.0)
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([3] * NUM_ENVS)
+        _, _, terminated, _, _ = env.step([3] * NUM_ENVS)
+        assert np.all(terminated)
+        # Reset and verify the new episode starts clean (no immediate termination).
+        env.reset(seed=[99] * NUM_ENVS)
+        _, _, terminated, _, _ = env.step([3] * NUM_ENVS)
+        assert not np.any(terminated)
+        env.close()
+
+    def test_obeys_env_terminated_vec(self):
+        # Underlying env's terminated signal should propagate.
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0]) for _ in range(NUM_ENVS)]
+        )
+        # Replace with env that always terminates
+        class _AlwaysTermVec(gym.vector.VectorWrapper):
+            def step(self, actions):
+                obs, r, term, trunc, info = self.env.step(actions)
+                return obs, r, np.ones_like(term), trunc, info
+            def reset(self, seed=None, options=None):
+                return self.env.reset(seed=seed, options=options)
+        env = _AlwaysTermVec(env)
+        env = EarlyTerminateVec(env, threshold=10.0)
+        env.reset(seed=[42] * NUM_ENVS)
+        _, _, terminated, _, _ = env.step([3] * NUM_ENVS)
+        assert np.all(terminated)
+        env.close()
+
+
+# --- RepeatActionPenalty scalar tests ---
+
+class TestRepeatActionPenalty:
+    def test_no_penalty_first_action(self):
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0]), thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=42)
+        _, reward, _, _, _ = env.step(0)  # first time action 0
+        assert reward == 1.0
+        env.close()
+
+    def test_penalty_after_threshold(self):
+        # action 0 threshold=2 -> penalty on 2nd consecutive occurrence
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0]), thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=42)
+        _, r1, _, _, _ = env.step(0)  # 1st, no penalty
+        _, r2, _, _, _ = env.step(0)  # 2nd, penalty hits
+        _, r3, _, _, _ = env.step(0)  # 3rd, penalty hits
+        assert r1 == 1.0
+        assert r2 == 0.5
+        assert r3 == 0.5
+        env.close()
+
+    def test_no_penalty_for_unlisted_action(self):
+        # action 1 not in thresholds -> never penalized
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0]), thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=42)
+        env.step(1)
+        _, r2, _, _, _ = env.step(1)
+        _, r3, _, _, _ = env.step(1)
+        assert r2 == 1.0
+        assert r3 == 1.0
+        env.close()
+
+    def test_different_action_resets_count(self):
+        # action 0, then 1, then 0 -> count for 0 resets
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0]), thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=42)
+        env.step(0)  # count=1
+        env.step(1)  # prev=1, count=1
+        _, r, _, _, _ = env.step(0)  # prev was 1, count resets to 1
+        assert r == 1.0
+        env.close()
+
+    def test_disabled_passthrough(self):
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0, 1.0]),
+            thresholds={0: 2},
+            penalty=0.5,
+            enabled=False,
+        )
+        env.reset(seed=42)
+        rewards = []
+        for _ in range(4):
+            _, r, _, _, _ = env.step(0)
+            rewards.append(r)
+        assert rewards == [1.0, 1.0, 1.0, 1.0]
+        env.close()
+
+    def test_reset_clears_state(self):
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0]), thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=42)
+        env.step(0)
+        env.step(0)  # would normally penalize
+        env.reset(seed=43)  # clears prev_action and count
+        _, r, _, _, _ = env.step(0)  # first action again, no penalty
+        assert r == 1.0
+        env.close()
+
+    def test_multiple_thresholds(self):
+        # action 0 threshold 2, action 2 threshold 3
+        env = RepeatActionPenalty(
+            _FixedRewardEnv([1.0, 1.0, 1.0, 1.0]),
+            thresholds={0: 2, 2: 3},
+            penalty=0.25,
+        )
+        env.reset(seed=42)
+        env.step(0)
+        _, r0, _, _, _ = env.step(0)  # hits threshold for action 0
+        assert r0 == 0.75
+        # Switch to action 2, threshold 3
+        env.step(2)  # count=1
+        _, r2a, _, _, _ = env.step(2)  # count=2, no penalty
+        _, r2b, _, _, _ = env.step(2)  # count=3, penalty
+        assert r2a == 1.0
+        assert r2b == 0.75
+        env.close()
+
+
+# --- RepeatActionPenaltyVec tests ---
+
+class TestRepeatActionPenaltyVec:
+    def test_no_penalty_first_step(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([0] * NUM_ENVS)
+        assert np.all(reward == 1.0)
+        env.close()
+
+    def test_penalty_after_threshold(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([0] * NUM_ENVS)  # first occurrence
+        _, reward, _, _, _ = env.step([0] * NUM_ENVS)  # 2nd, penalized
+        assert np.all(reward == 0.5)
+        env.close()
+
+    def test_unlisted_action_no_penalty(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([1] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([1] * NUM_ENVS)
+        assert np.all(reward == 1.0)
+        env.close()
+
+    def test_per_env_independent(self):
+        # Env 0 repeats action 0 (penalized), env 1 repeats action 1 (not in thresholds).
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        # First step: env 0 does 0, env 1 does 1 -> both first-occurrence
+        env.step([0, 1])
+        # Second step: env 0 repeats 0 (penalized), env 1 repeats 1 (not in thresholds)
+        _, reward, _, _, _ = env.step([0, 1])
+        assert reward[0] == 0.5
+        assert reward[1] == 1.0
+        env.close()
+
+    def test_disabled(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5, enabled=False
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([0] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([0] * NUM_ENVS)
+        assert np.all(reward == 1.0)
+        env.close()
+
+    def test_reset_clears(self):
+        env = gym.vector.SyncVectorEnv(
+            [_make_fixed_reward_env([1.0, 1.0]) for _ in range(NUM_ENVS)]
+        )
+        env = RepeatActionPenaltyVec(
+            env, thresholds={0: 2}, penalty=0.5
+        )
+        env.reset(seed=[42] * NUM_ENVS)
+        env.step([0] * NUM_ENVS)
+        env.reset(seed=[99] * NUM_ENVS)
+        _, reward, _, _, _ = env.step([0] * NUM_ENVS)  # first occurrence again
+        assert np.all(reward == 1.0)
+        env.close()
