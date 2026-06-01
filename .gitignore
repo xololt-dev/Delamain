@@ -215,3 +215,10 @@ __marimo__/
 
 # Collected data
 .data
+
+# Analysis data
+analysis
+pobierz
+*.csv
+evals
+DQN*/

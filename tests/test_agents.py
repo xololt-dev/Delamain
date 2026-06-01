@@ -10,7 +10,6 @@ from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
 from tests.helpers import DEVICES, make_dqn_agent, make_ddqn_agent, make_ppo_agent
 
-
 ACTION_N = 5
 
 
@@ -93,7 +92,10 @@ class TestAgentStore:
         new_state = np.random.randint(0, 256, (96, 96, 12), dtype=np.uint8)
         dqn_agent.store(state, 0, 1.0, new_state, False)
         fill_agent_buffer(dqn_agent, n=10)
-        states, actions, rewards, new_states, terminateds = dqn_agent.get_samples(5)
+        states, actions, rewards, new_states, terminateds, info = dqn_agent.get_samples(
+            5
+        )
+        print(states.shape)
         assert states.shape[0] == 5
 
     @pytest.mark.parametrize("agent_cls", AGENT_CLASSES, ids=AGENT_IDS)
@@ -109,7 +111,7 @@ class TestAgentStore:
         new_state = torch.randint(0, 256, (96, 96, 12), dtype=torch.uint8)
         agent.store(state, 2, -1.0, new_state, True)
         fill_agent_buffer(agent, n=10)
-        states, actions, rewards, new_states, terminateds = agent.get_samples(5)
+        states, actions, rewards, new_states, terminateds, info = agent.get_samples(5)
         assert states.shape[0] == 5
 
 
@@ -118,7 +120,7 @@ class TestAgentGetSamples:
         """Parametrized by device via dqn_agent fixture."""
         fill_agent_buffer(dqn_agent, n=20)
         batch_size = 8
-        states, actions, rewards, new_states, terminateds = dqn_agent.get_samples(
+        states, actions, rewards, new_states, terminateds, info = dqn_agent.get_samples(
             batch_size
         )
         assert states.shape == (batch_size, 96, 96, 12)
@@ -137,7 +139,7 @@ class TestAgentGetSamples:
             device="cpu",
         )
         fill_agent_buffer(agent, n=20)
-        states, actions, rewards, new_states, terminateds = agent.get_samples(4)
+        states, actions, rewards, new_states, terminateds, info = agent.get_samples(4)
         assert states.dtype == torch.uint8
         assert actions.dtype == torch.long
         assert rewards.dtype == torch.float32
@@ -253,8 +255,8 @@ class TestAgentDDQNSpecific:
     ):
         fill_agent_buffer(ddqn_agent, n=20)
         batch_size = 8
-        states, actions, rewards, new_states, terminateds = ddqn_agent.get_samples(
-            batch_size
+        states, actions, rewards, new_states, terminateds, info = (
+            ddqn_agent.get_samples(batch_size)
         )
 
         # Record policy_net and target_net outputs on new_states

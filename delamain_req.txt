@@ -6,3 +6,4 @@ pyyaml
 torchvision
 opencv-python
 pytest
+pytest-cov

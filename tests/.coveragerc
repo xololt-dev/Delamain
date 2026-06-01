@@ -1,0 +1,2 @@
+[run]
+omit = venv/*, tests/*, main.py, mergecsv.py, eval_stats.py, analyze_results.py

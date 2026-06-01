@@ -468,7 +468,12 @@ class TrainingGround:
 
     @lru_cache(maxsize=1)
     def _get_observation_channels(self) -> int:
-        return 1 if self.observation == Observations.GREYSCALE else 3
+        return (
+            1
+            if hasattr(self, "observation")
+            and self.observation == Observations.GREYSCALE
+            else 3
+        )
 
     def parse_class_name(self, class_name: str | None, input_size: int = 96):
         match class_name:

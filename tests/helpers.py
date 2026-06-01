@@ -6,7 +6,7 @@ from environment.AgentDQN import AgentDQN
 from environment.AgentDDQN import AgentDDQN
 from environment.AgentPPO import AgentPPO
 from alternative_models.Delamain_2_5 import Delamain_2_5, Delamain_2_5_PPO
-
+from alternative_models.Delamain_2_6 import Delamain_2_6, Delamain_2_6_PPO
 
 ACTION_N = 5
 STATE_SHAPE_RAW = (2, 96, 96, 3)
@@ -25,7 +25,7 @@ def make_dqn_agent(device="cpu"):
     return AgentDQN(
         state_space_shape=STATE_SHAPE_D21,
         action_n=ACTION_N,
-        model=Delamain_2_5,
+        model=Delamain_2_6,
         gamma=0.95,
         epsilon=1.0,
         epsilon_end=0.05,
@@ -40,7 +40,7 @@ def make_ddqn_agent(device="cpu"):
     return AgentDDQN(
         state_space_shape=STATE_SHAPE_D21,
         action_n=ACTION_N,
-        model=Delamain_2_5,
+        model=Delamain_2_6,
         gamma=0.95,
         epsilon=1.0,
         epsilon_end=0.05,
@@ -55,7 +55,7 @@ def make_ppo_agent(device="cpu"):
     return AgentPPO(
         state_space_shape=STATE_SHAPE_D21,
         action_n=ACTION_N,
-        model=Delamain_2_5_PPO,
+        model=Delamain_2_6_PPO,
         gamma=0.99,
         lr=0.0003,
         buffer_size=1024,
