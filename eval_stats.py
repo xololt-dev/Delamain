@@ -70,7 +70,8 @@ def fmt_stats(name, values):
     return (
         f"  {name}: min={min(values):.3f}  max={max(values):.3f}  "
         f"avg={statistics.mean(values):.3f}  median={statistics.median(values):.3f}  "
-        f"p25={pct(values, 25):.3f}  p75={pct(values, 75):.3f}"
+        f"p25={pct(values, 25):.3f}  p75={pct(values, 75):.3f}  "
+        f"std={statistics.stdev(values):.3f}"
     )
 
 
